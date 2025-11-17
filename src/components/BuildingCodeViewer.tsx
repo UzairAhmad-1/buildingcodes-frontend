@@ -1,20 +1,14 @@
 // src/components/BuildingCodeViewer.tsx
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import {
-  ChevronRight,
-  Search,
-  Loader2,
-  Building,
-  AlertCircle,
-  RefreshCw,
-  X,
-  ExternalLink,
-} from "lucide-react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+} from "react";
+import { ChevronRight, Search, X, ExternalLink } from "lucide-react";
 import { HierarchyNode } from "@/types/buildingCode";
-import {
-  buildingCodeService,
-  buildHierarchy,
-} from "@/services/buildingCodeService";
+import { buildingCodeService } from "@/services/buildingCodeService";
 import { useSearchParams } from "next/navigation";
 
 interface Reference {
@@ -28,6 +22,7 @@ interface Reference {
   font_family: string;
   bbox: number[];
   reference_position: number;
+  target_content?: any;
 }
 
 interface BuildingCodeViewerProps {
@@ -44,10 +39,11 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   documentId,
   documentInfo,
 }) => {
-  const [data, setData] = useState<HierarchyNode[]>([]);
-  const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
+  const [navigationData, setNavigationData] = useState<HierarchyNode[]>([]);
+  const [currentContent, setCurrentContent] = useState<HierarchyNode[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
+  const [contentLoading, setContentLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<number | null>(null);
   const [searchResults, setSearchResults] = useState<HierarchyNode[]>([]);
@@ -61,255 +57,291 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     new Set()
   );
 
-  // Add this hook to get URL search params
+  const searchTimeoutRef = useRef<NodeJS.Timeout>();
+
   const params = useSearchParams();
   const highlightParam = params.get("highlight");
 
-  // Check if we're in search mode
+  // Memoized values
   const isSearchMode = useMemo(() => {
     return searchTerm.trim().length > 0 && searchResults.length > 0;
   }, [searchTerm, searchResults]);
 
+  // Main data fetching - only navigation
   useEffect(() => {
-    fetchData();
-  }, [documentId]);
+    let isMounted = true;
+    const abortController = new AbortController();
 
-  // Add this useEffect to handle highlight parameter after data is loaded
-  useEffect(() => {
-    if (data.length > 0 && highlightParam) {
-      const highlightId = parseInt(highlightParam);
-      if (!isNaN(highlightId)) {
-        // Small delay to ensure the DOM is fully rendered
-        setTimeout(() => {
-          navigateToItem(highlightId);
-        }, 500);
-      }
-    }
-  }, [data, highlightParam]);
+    const fetchData = async () => {
+      if (!documentId) return;
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+      try {
+        setLoading(true);
+        setError(null);
 
-      if (documentId) {
-        const contentData = await buildingCodeService.getDocumentContent(
-          documentId
-        );
-        setData(contentData.content);
-
-        // Auto-expand ALL items in CONTENT
-        const allContentIds = new Set<number>();
-        const collectAllIds = (nodes: HierarchyNode[]) => {
-          nodes.forEach((node) => {
-            allContentIds.add(node.id);
-            if (node.children) {
-              collectAllIds(node.children);
-            }
-          });
-        };
-        collectAllIds(contentData.content);
-        setContentExpandedItems(allContentIds);
-
-        // Navigation starts with ALL items expanded
-        const allNavigationIds = new Set<number>();
-        const collectNavigationIds = (nodes: HierarchyNode[]) => {
-          nodes.forEach((node) => {
-            allNavigationIds.add(node.id);
-            if (node.children) {
-              collectNavigationIds(node.children);
-            }
-          });
-        };
-        collectNavigationIds(contentData.content);
-        setNavigationExpandedItems(allNavigationIds);
-      } else {
-        const flatData = await buildingCodeService.getHierarchy();
-        const hierarchicalData = buildHierarchy(flatData);
-        setData(hierarchicalData);
-
-        // Auto-expand ALL items in CONTENT
-        const allContentIds = new Set<number>();
-        const collectAllIds = (nodes: HierarchyNode[]) => {
-          nodes.forEach((node) => {
-            allContentIds.add(node.id);
-            if (node.children) {
-              collectAllIds(node.children);
-            }
-          });
-        };
-        collectAllIds(hierarchicalData);
-        setContentExpandedItems(allContentIds);
-
-        // Navigation starts with ALL items expanded
-        const allNavigationIds = new Set<number>();
-        const collectNavigationIds = (nodes: HierarchyNode[]) => {
-          nodes.forEach((node) => {
-            allNavigationIds.add(node.id);
-            if (node.children) {
-              collectNavigationIds(node.children);
-            }
-          });
-        };
-        collectNavigationIds(hierarchicalData);
-        setNavigationExpandedItems(allNavigationIds);
-      }
-    } catch (err) {
-      setError(
-        "Failed to load building code data. Please ensure the backend server is running."
-      );
-      console.error("Error fetching data:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const toggleNavigationExpand = (id: number, event?: React.MouseEvent) => {
-    if (event) {
-      event.stopPropagation();
-    }
-    const newExpanded = new Set(navigationExpandedItems);
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id);
-    } else {
-      newExpanded.add(id);
-    }
-    setNavigationExpandedItems(newExpanded);
-  };
-
-  const toggleContentExpand = (id: number, event?: React.MouseEvent) => {
-    if (event) {
-      event.stopPropagation();
-    }
-    const newExpanded = new Set(contentExpandedItems);
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id);
-    } else {
-      newExpanded.add(id);
-    }
-    setContentExpandedItems(newExpanded);
-  };
-
-  // Function to highlight references in text with purple color
-  const highlightReferences = (text: string, references: Reference[] = []) => {
-    if (!text || references.length === 0) {
-      return <>{text}</>;
-    }
-
-    // Sort references by position in text (we'll use reference_position for order)
-    const sortedReferences = [...references].sort(
-      (a, b) => a.reference_position - b.reference_position
-    );
-
-    let lastIndex = 0;
-    const elements: JSX.Element[] = [];
-    const textLower = text.toLowerCase();
-
-    sortedReferences.forEach((ref, index) => {
-      const refText = ref.reference_text;
-      const refLower = refText.toLowerCase();
-
-      // Find the reference text in the content text
-      const refIndex = textLower.indexOf(refLower, lastIndex);
-
-      if (refIndex !== -1) {
-        // Add text before the reference
-        if (refIndex > lastIndex) {
-          elements.push(
-            <span key={`text-${index}`}>
-              {text.substring(lastIndex, refIndex)}
-            </span>
+        console.log("Fetching navigation data...");
+        const navigationResponse =
+          await buildingCodeService.getDocumentNavigation(
+            documentId,
+            abortController.signal
           );
-        }
 
-        // Add the highlighted reference
-        elements.push(
-          <span
-            key={`ref-${index}`}
-            className=" text-purple-800 px-1 rounded cursor-pointer  transition-colors borde font-medium"
-            title={`Click to view definition of ${refText}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleReferenceClick(ref);
-            }}
-          >
-            {text.substring(refIndex, refIndex + refText.length)}
-            <ExternalLink size={12} className="inline ml-1" />
-          </span>
+        if (!isMounted) return;
+
+        console.log(
+          "Navigation data received:",
+          navigationResponse.navigation.length
         );
+        setNavigationData(navigationResponse.navigation);
 
-        lastIndex = refIndex + refText.length;
-      }
-    });
+        // Auto-expand first level items in navigation
+        const firstLevelIds = new Set<number>();
+        navigationResponse.navigation.forEach((item) =>
+          firstLevelIds.add(item.id)
+        );
+        setNavigationExpandedItems(firstLevelIds);
 
-    // Add remaining text after last reference
-    if (lastIndex < text.length) {
-      elements.push(<span key="text-final">{text.substring(lastIndex)}</span>);
-    }
-
-    return <>{elements}</>;
-  };
-
-  // Handle reference click - navigate to target content
-  const handleReferenceClick = (reference: Reference) => {
-    console.log("Reference clicked:", reference);
-    if (reference.target_content_id) {
-      navigateToItem(reference.target_content_id);
-    } else if (reference.hyperlink_target) {
-      // Extract ID from hyperlink target like "#content-480"
-      const match = reference.hyperlink_target.match(/#content-(\d+)/);
-      if (match) {
-        const targetId = parseInt(match[1]);
-        navigateToItem(targetId);
-      }
-    }
-  };
-
-  const toggleExpand = (id: number, event?: React.MouseEvent) => {
-    if (event) {
-      event.stopPropagation();
-    }
-    const newExpanded = new Set(expandedItems);
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id);
-    } else {
-      newExpanded.add(id);
-    }
-    setExpandedItems(newExpanded);
-  };
-
-  // Search functionality
-  const handleSearch = (term: string) => {
-    setSearchTerm(term);
-
-    if (!term.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    const results: HierarchyNode[] = [];
-    const searchInNodes = (nodes: HierarchyNode[]) => {
-      nodes.forEach((node) => {
-        const matchesSearch =
-          node.title?.toLowerCase().includes(term.toLowerCase()) ||
-          node.content_text?.toLowerCase().includes(term.toLowerCase()) ||
-          node.reference_code?.toLowerCase().includes(term.toLowerCase());
-
-        if (matchesSearch) {
-          results.push(node);
+        // Load first division content automatically
+        if (navigationResponse.navigation.length > 0) {
+          const firstDivision = navigationResponse.navigation[0];
+          console.log("Loading first division:", firstDivision.id);
+          await loadContentForItem(firstDivision.id);
         }
-
-        if (node.children) {
-          searchInNodes(node.children);
+      } catch (err) {
+        if (!isMounted) return;
+        if (err instanceof Error && err.name !== "AbortError") {
+          console.error("Error fetching data:", err);
+          setError("Failed to load building code data. Please try again.");
         }
-      });
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
     };
 
-    searchInNodes(data);
-    setSearchResults(results);
-  };
+    fetchData();
 
-  const highlightText = (text: string, highlight: string) => {
+    return () => {
+      isMounted = false;
+      abortController.abort();
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [documentId]);
+
+  // Load content for specific item
+  const loadContentForItem = useCallback(
+    async (contentId: number) => {
+      if (!documentId) return;
+
+      try {
+        setContentLoading(true);
+        console.log(`Loading content for item: ${contentId}`);
+
+        const contentItem = await buildingCodeService.getContentItem(
+          documentId,
+          contentId
+        );
+
+        // Replace current content with the new item (as an array)
+        setCurrentContent([contentItem]);
+        setSelectedItem(contentId);
+
+        // Auto-expand ALL items in the loaded content
+        const allContentIds = new Set<number>();
+        const collectAllIds = (nodes: HierarchyNode[]) => {
+          nodes.forEach((node) => {
+            allContentIds.add(node.id);
+            if (node.children) {
+              collectAllIds(node.children);
+            }
+          });
+        };
+        collectAllIds([contentItem]);
+        setContentExpandedItems(allContentIds);
+      } catch (error) {
+        console.error("Error loading content:", error);
+      } finally {
+        setContentLoading(false);
+      }
+    },
+    [documentId]
+  );
+
+  // Navigation click handler
+  const handleNavigationClick = useCallback(
+    (item: HierarchyNode) => {
+      console.log("Navigation item clicked:", item.id);
+      setSelectedItem(item.id);
+      loadContentForItem(item.id);
+
+      // Auto-expand the clicked item in navigation
+      setNavigationExpandedItems((prev) => new Set(prev).add(item.id));
+    },
+    [loadContentForItem]
+  );
+
+  // Toggle navigation expansion
+  const toggleNavigationExpand = useCallback(
+    (id: number, event?: React.MouseEvent) => {
+      if (event) event.stopPropagation();
+
+      setNavigationExpandedItems((prev) => {
+        const newExpanded = new Set(prev);
+        if (newExpanded.has(id)) {
+          newExpanded.delete(id);
+        } else {
+          newExpanded.add(id);
+        }
+        return newExpanded;
+      });
+    },
+    []
+  );
+
+  // Toggle content expansion
+  const toggleContentExpand = useCallback(
+    (id: number, event?: React.MouseEvent) => {
+      if (event) event.stopPropagation();
+
+      setContentExpandedItems((prev) => {
+        const newExpanded = new Set(prev);
+        if (newExpanded.has(id)) {
+          newExpanded.delete(id);
+        } else {
+          newExpanded.add(id);
+        }
+        return newExpanded;
+      });
+    },
+    []
+  );
+
+  // Search functionality - calls backend API
+  const handleSearch = useCallback(
+    (term: string) => {
+      setSearchTerm(term);
+
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+
+      searchTimeoutRef.current = setTimeout(async () => {
+        if (!term.trim()) {
+          setSearchResults([]);
+          return;
+        }
+
+        try {
+          console.log("Searching for:", term);
+          const searchResponse = await buildingCodeService.searchContent(
+            documentId!,
+            term
+          );
+          setSearchResults(searchResponse.results);
+        } catch (error) {
+          console.error("Search error:", error);
+          // Fallback to client-side search if API fails
+          const results: HierarchyNode[] = [];
+          const searchInNodes = (nodes: HierarchyNode[]) => {
+            nodes.forEach((node) => {
+              const matchesSearch =
+                node.title?.toLowerCase().includes(term.toLowerCase()) ||
+                node.content_text?.toLowerCase().includes(term.toLowerCase()) ||
+                node.reference_code?.toLowerCase().includes(term.toLowerCase());
+
+              if (matchesSearch) {
+                results.push(node);
+              }
+
+              if (node.children) {
+                searchInNodes(node.children);
+              }
+            });
+          };
+
+          searchInNodes(navigationData);
+          setSearchResults(results);
+        }
+      }, 300);
+    },
+    [documentId, navigationData]
+  );
+
+  // Handle reference click
+  const handleReferenceClick = useCallback(
+    (reference: Reference) => {
+      if (reference.target_content_id) {
+        setSelectedItem(reference.target_content_id);
+        loadContentForItem(reference.target_content_id);
+      }
+    },
+    [loadContentForItem]
+  );
+
+  // Function to highlight references in text
+  const highlightReferences = useCallback(
+    (text: string, references: Reference[] = []) => {
+      if (!text || !references || references.length === 0) {
+        return <>{text}</>;
+      }
+
+      const sortedReferences = [...references].sort(
+        (a, b) => a.reference_position - b.reference_position
+      );
+
+      let lastIndex = 0;
+      const elements: JSX.Element[] = [];
+      const textLower = text.toLowerCase();
+
+      sortedReferences.forEach((ref, index) => {
+        const refText = ref.reference_text;
+        const refLower = refText.toLowerCase();
+
+        const refIndex = textLower.indexOf(refLower, lastIndex);
+
+        if (refIndex !== -1) {
+          if (refIndex > lastIndex) {
+            elements.push(
+              <span key={`text-${index}`}>
+                {text.substring(lastIndex, refIndex)}
+              </span>
+            );
+          }
+
+          elements.push(
+            <span
+              key={`ref-${index}`}
+              className="text-purple-800 px-1 rounded cursor-pointer transition-colors border font-medium"
+              title={`Click to view definition of ${refText}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleReferenceClick(ref);
+              }}
+            >
+              {text.substring(refIndex, refIndex + refText.length)}
+              <ExternalLink size={12} className="inline ml-1" />
+            </span>
+          );
+
+          lastIndex = refIndex + refText.length;
+        }
+      });
+
+      if (lastIndex < text.length) {
+        elements.push(
+          <span key="text-final">{text.substring(lastIndex)}</span>
+        );
+      }
+
+      return <>{elements}</>;
+    },
+    [handleReferenceClick]
+  );
+
+  const highlightText = useCallback((text: string, highlight: string) => {
     if (!highlight || !text) return text;
 
     const parts = text.split(new RegExp(`(${highlight})`, "gi"));
@@ -326,168 +358,182 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         )}
       </>
     );
-  };
+  }, []);
 
   const getTypeStyles = (type: string) => {
     const styles: Record<string, { text: string }> = {
-      division: {
-        text: "text-3xl text-black font-normal",
-      },
-      part: {
-        text: "text-2xl text-black font-normal",
-      },
-      section: {
-        text: "text-xl text-black font-normal",
-      },
-      subsection: {
-        text: "text-lg text-black font-normal",
-      },
-      article: {
-        text: "text-lg text-black font-normal",
-      },
-      sentence: {
-        text: "text-sm text-black font-normal",
-      },
-      clause: {
-        text: "text-sm text-black font-normal",
-      },
-      subclause: {
-        text: "text-sm text-black font-normal",
-      },
+      division: { text: "text-3xl text-black font-normal" },
+      part: { text: "text-2xl text-black font-normal" },
+      section: { text: "text-xl text-black font-normal" },
+      subsection: { text: "text-lg text-black font-normal" },
+      article: { text: "text-lg text-black font-normal" },
+      sentence: { text: "text-sm text-black font-normal" },
+      clause: { text: "text-sm text-black font-normal" },
+      subclause: { text: "text-sm text-black font-normal" },
     };
 
     return styles[type] || { text: "text-sm text-black font-normal" };
   };
 
-  // Filter navigation to only show division to articles
-  const shouldShowInNavigation = (item: HierarchyNode): boolean => {
-    const topLevelTypes = [
-      "division",
-      "part",
-      "section",
-      "subsection",
-      "article",
-    ];
-    return topLevelTypes.includes(item.content_type);
-  };
+  // Navigation item renderer - EXACTLY like your original but collapsed by default
+  const renderNavigationItem = useCallback(
+    (item: HierarchyNode, level: number = 0) => {
+      const hasChildren = item.children && item.children.length > 0;
+      const isExpanded = navigationExpandedItems.has(item.id);
+      const isSelected = selectedItem === item.id;
 
-  const renderNavigationItem = (item: HierarchyNode, level: number = 0) => {
-    if (!shouldShowInNavigation(item)) {
-      return null;
-    }
+      return (
+        <div key={item.id}>
+          <div
+            className={`flex items-center px-3 py-2 cursor-pointer hover:bg-blue-50 transition-colors ${
+              isSelected ? "bg-blue-100 border-l-4 border-blue-600" : ""
+            }`}
+            style={{ paddingLeft: `${level * 16 + 12}px` }}
+            onClick={() => handleNavigationClick(item)}
+          >
+            {hasChildren && (
+              <div
+                className="flex-shrink-0 p-1 rounded hover:bg-gray-200 transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleNavigationExpand(item.id, e);
+                }}
+              >
+                <ChevronRight
+                  size={14}
+                  className={`transition-transform ${
+                    isExpanded ? "transform rotate-90" : ""
+                  }`}
+                />
+              </div>
+            )}
+            {!hasChildren && <div className="w-6 mr-2"></div>}
 
-    const hasChildren = item.children && item.children.length > 0;
-    const isExpanded = navigationExpandedItems.has(item.id); // Use navigation state
-    const isSelected = selectedItem === item.id;
+            <div className="flex-1 min-w-0">
+              <div className="text-sm truncate">
+                {item.reference_code && (
+                  <span className="font-mono text-xs text-gray-500 mr-2">
+                    {item.reference_code}
+                  </span>
+                )}
+                <span
+                  className={
+                    level === 0
+                      ? "font-semibold text-gray-900"
+                      : "text-gray-700"
+                  }
+                >
+                  {[
+                    item.reference_code,
+                    item.title,
+                    item.content_text && item.content_text.substring(0, 80),
+                  ]
+                    .filter(Boolean)
+                    .join(" – ")}
+                </span>
+              </div>
+            </div>
+          </div>
 
-    return (
-      <div key={item.id}>
-        <div
-          className={`flex items-center px-3 py-2 cursor-pointer hover:bg-blue-50 transition-colors ${
-            isSelected ? "bg-blue-100 border-l-4 border-blue-600" : ""
-          }`}
-          style={{ paddingLeft: `${level * 16 + 12}px` }}
-          onClick={() => {
-            console.log(
-              "Navigating to item:",
-              item.id,
-              item.reference_code,
-              item.title
-            );
-            navigateToItem(item.id);
-          }}
-        >
-          {hasChildren && (
-            <div
-              className="flex-shrink-0 p-1 rounded hover:bg-gray-200 transition-colors"
-              onClick={(e) => toggleNavigationExpand(item.id, e)} // Use navigation toggle
-            >
-              <ChevronRight
-                size={14}
-                className={`transition-transform ${
-                  isExpanded ? "transform rotate-90" : ""
-                }`}
-              />
+          {hasChildren && isExpanded && (
+            <div>
+              {item.children!.map((child) =>
+                renderNavigationItem(child, level + 1)
+              )}
             </div>
           )}
-          {!hasChildren && <div className="w-6 mr-2"></div>}
+        </div>
+      );
+    },
+    [
+      navigationExpandedItems,
+      selectedItem,
+      handleNavigationClick,
+      toggleNavigationExpand,
+    ]
+  );
 
-          <div className="flex-1 min-w-0">
-            <div className="text-sm truncate">
-              {item.reference_code && (
-                <span className="font-mono text-xs text-gray-500 mr-2">
-                  {item.reference_code}
-                </span>
-              )}
-              <span
-                className={
-                  level === 0 ? "font-semibold text-gray-900" : "text-gray-700"
-                }
-              >
-                {item.title || item.content_text?.substring(0, 50)}
-                {(item.content_type === "division" ||
-                  item.content_type === "part" ||
-                  item.content_type === "section") &&
-                  item.title &&
-                  item.content_text && (
-                    <span className="text-gray-600">
-                      {" - "}
-                      {item.content_text}
+  // Content item renderer - EXACTLY like your original (always expanded)
+  const renderContentItem = useCallback(
+    (item: HierarchyNode, level: number = 0) => {
+      const hasChildren = item.children && item.children.length > 0;
+      const isExpanded = contentExpandedItems.has(item.id);
+      const isHighlighted = selectedItem === item.id;
+      const isHovered = hoveredItem === item.id;
+      const typeStyles = getTypeStyles(item.content_type);
+
+      const showHighlight =
+        isHighlighted &&
+        ["division", "part", "section", "subsection", "article"].includes(
+          item.content_type
+        );
+
+      if (item.content_type === "article") {
+        return (
+          <div key={item.id} className="mb-6">
+            <div
+              ref={(el) => {
+                contentRefs.current[item.id] = el;
+              }}
+              className={`p-4 rounded-lg ${
+                showHighlight
+                  ? "bg-blue-50 border-blue-300 shadow-sm"
+                  : isHovered
+                  ? "bg-gray-200 border-gray-300 shadow-sm"
+                  : "bg-white"
+              }`}
+              onMouseEnter={() => setHoveredItem(item.id)}
+              onMouseLeave={() => setHoveredItem(null)}
+              onClick={() => setSelectedItem(item.id)}
+            >
+              {(item.reference_code || item.title) && (
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  {item.reference_code && (
+                    <span className="px-2 py-1 rounded transition-colors">
+                      {item.reference_code}
                     </span>
                   )}
-              </span>
+                  {item.title && (
+                    <h3 className={`${typeStyles.text}`}>
+                      {searchTerm
+                        ? highlightText(item.title, searchTerm)
+                        : item.title}
+                    </h3>
+                  )}
+                </div>
+              )}
+
+              {hasChildren && (
+                <div className="space-y-3">
+                  {item.children!.map((child) => renderArticleChild(child))}
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        );
+      }
 
-        {hasChildren && isExpanded && (
-          <div>
-            {item.children!.map((child) =>
-              renderNavigationItem(child, level + 1)
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // Update renderContentItem to use contentExpandedItems
-  const renderContentItem = (item: HierarchyNode, level: number = 0) => {
-    const hasChildren = item.children && item.children.length > 0;
-    const isExpanded = contentExpandedItems.has(item.id); // Use content state
-    const isHighlighted = selectedItem === item.id;
-    const isHovered = hoveredItem === item.id;
-    const typeStyles = getTypeStyles(item.content_type);
-    const references: Reference[] = (item as any).references || [];
-
-    const showHighlight =
-      isHighlighted &&
-      ["division", "part", "section", "subsection", "article"].includes(
-        item.content_type
-      );
-
-    if (item.content_type === "article") {
       return (
         <div key={item.id} className="mb-6">
           <div
             ref={(el) => {
               contentRefs.current[item.id] = el;
             }}
-            className={` p-4 rounded-lg  ${
+            className={`p-4 rounded-lg ${
               showHighlight
                 ? "bg-blue-50 border-blue-300 shadow-sm"
                 : isHovered
                 ? "bg-gray-200 border-gray-300 shadow-sm"
-                : "bg-white "
+                : "bg-white"
             }`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
-            onClick={() => navigateToItem(item.id)}
+            onClick={() => setSelectedItem(item.id)}
           >
-            {(item.reference_code || item.title) && (
+            {(item.reference_code || item.title || item.content_text) && (
               <div className="flex flex-wrap items-center gap-2 mb-3">
                 {item.reference_code && (
-                  <span className={` px-2 py-1 rounded  transition-colors`}>
+                  <span className="px-2 py-1 rounded transition-colors">
                     {item.reference_code}
                   </span>
                 )}
@@ -498,334 +544,267 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                       : item.title}
                   </h3>
                 )}
-              </div>
-            )}
-
-            {/* Always show children in content - no expansion check needed */}
-            {hasChildren && (
-              <div className="space-y-3">
-                {item.children!.map((child) => renderArticleChild(child))}
+                {item.content_text && item.content_text !== item.title && (
+                  <span className={`${typeStyles.text}`}>
+                    {searchTerm
+                      ? highlightText(item.content_text, searchTerm)
+                      : highlightReferences(
+                          item.content_text,
+                          item.references || []
+                        )}
+                  </span>
+                )}
               </div>
             )}
           </div>
+
+          {hasChildren && item.content_type !== "article" && (
+            <div className="ml-4">
+              {item.children!.map((child) =>
+                renderContentItem(child, level + 1)
+              )}
+            </div>
+          )}
         </div>
       );
-    }
+    },
+    [
+      contentExpandedItems,
+      selectedItem,
+      hoveredItem,
+      searchTerm,
+      highlightText,
+      highlightReferences,
+    ]
+  );
 
-    return (
-      <div key={item.id} className="mb-6">
+  // Helper function to render children within an article
+  const renderArticleChild = useCallback(
+    (item: HierarchyNode, level: number = 0) => {
+      const hasChildren = item.children && item.children.length > 0;
+      const isHighlighted = selectedItem === item.id;
+      const isHovered = hoveredItem === item.id;
+
+      // Sentences get their own separate block with border
+      if (item.content_type === "sentence") {
+        return (
+          <div
+            key={item.id}
+            ref={(el) => {
+              contentRefs.current[item.id] = el;
+            }}
+            className={`p-3 rounded ${
+              isHighlighted
+                ? "bg-blue-50 border-blue-300 shadow-sm"
+                : isHovered
+                ? "bg-gray-200 border-gray-300"
+                : "bg-white"
+            }`}
+            onMouseEnter={() => setHoveredItem(item.id)}
+            onMouseLeave={() => setHoveredItem(null)}
+            onClick={() => setSelectedItem(item.id)}
+          >
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                {/* Sentence content with reference highlights */}
+                {(item.reference_code || item.content_text) && (
+                  <div className="text-gray-700 leading-relaxed">
+                    <div className="flex flex-wrap items-start gap-2">
+                      {/* Reference Code */}
+                      {item.reference_code && (
+                        <span>{item.reference_code}</span>
+                      )}
+
+                      {/* Sentence Text */}
+                      {item.content_text && (
+                        <span className="break-words flex-1">
+                          {searchTerm
+                            ? highlightText(item.content_text, searchTerm)
+                            : highlightReferences(
+                                item.content_text,
+                                item.references || []
+                              )}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Render all clauses and subclauses within this sentence block */}
+                {hasChildren && (
+                  <div className="mt-2 space-y-1">
+                    {item.children!.map((child) => renderClauseContent(child))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Default case for non-sentence children
+      return (
         <div
+          key={item.id}
           ref={(el) => {
             contentRefs.current[item.id] = el;
           }}
-          className={` p-4 rounded-lg  ${
-            showHighlight
-              ? "bg-blue-50 border-blue-300 shadow-sm"
-              : isHovered
-              ? "bg-gray-200 border-gray-300 shadow-sm"
-              : "bg-white "
-          }`}
-          onMouseEnter={() => setHoveredItem(item.id)}
-          onMouseLeave={() => setHoveredItem(null)}
-          onClick={() => navigateToItem(item.id)}
+          className="mb-2"
+          onClick={() => setSelectedItem(item.id)}
         >
-          {(item.reference_code || item.title || item.content_text) && (
-            <div className="flex flex-wrap items-center gap-2 mb-3">
+          {item.content_text && (
+            <div className="text-gray-700 leading-relaxed">
+              {searchTerm
+                ? highlightText(item.content_text, searchTerm)
+                : highlightReferences(item.content_text, item.references || [])}
+            </div>
+          )}
+        </div>
+      );
+    },
+    [selectedItem, hoveredItem, searchTerm, highlightText, highlightReferences]
+  );
+
+  // Helper function to render clauses and subclauses within a sentence
+  const renderClauseContent = useCallback(
+    (item: HierarchyNode, level: number = 0) => {
+      const hasChildren = item.children && item.children.length > 0;
+      const isHighlighted = selectedItem === item.id;
+      const isHovered = hoveredItem === item.id;
+
+      if (item.content_type === "clause") {
+        return (
+          <div
+            key={item.id}
+            ref={(el) => {
+              contentRefs.current[item.id] = el;
+            }}
+            className={`ml-4 p-2 rounded ${
+              isHighlighted
+                ? "bg-blue-50"
+                : isHovered
+                ? "bg-gray-100 border border-black"
+                : ""
+            }`}
+            onMouseEnter={() => setHoveredItem(item.id)}
+            onMouseLeave={() => setHoveredItem(null)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedItem(item.id);
+            }}
+          >
+            {/* Reference code and title in one line */}
+            <div className="flex items-start gap-1">
+              <span className="font-medium text-black shrink-0">
+                {item.reference_code}
+              </span>
+              <span className="text-black leading-relaxed">
+                {item.title &&
+                  (searchTerm
+                    ? highlightText(item.title, searchTerm)
+                    : highlightReferences(item.title, item.references || []))}
+              </span>
+            </div>
+
+            {/* Render subclauses */}
+            {hasChildren && (
+              <div className="ml-4 mt-1 space-y-1">
+                {item.children!.map((child) => renderClauseContent(child))}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      if (item.content_type === "subclause") {
+        return (
+          <div
+            key={item.id}
+            ref={(el) => {
+              contentRefs.current[item.id] = el;
+            }}
+            className={`ml-4 p-1 rounded transition-colors ${
+              isHighlighted
+                ? "bg-blue-50"
+                : isHovered
+                ? "bg-gray-100 border border-black"
+                : ""
+            }`}
+            onMouseEnter={() => setHoveredItem(item.id)}
+            onMouseLeave={() => setHoveredItem(null)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedItem(item.id);
+            }}
+          >
+            {/* For subclauses, you might want similar treatment */}
+            <div className="flex items-start gap-1">
               {item.reference_code && (
-                <span className={` px-2 py-1 rounded  transition-colors`}>
+                <span className="font-medium text-gray-800 shrink-0">
                   {item.reference_code}
                 </span>
               )}
-              {item.title && (
-                <h3 className={`${typeStyles.text}`}>
-                  {searchTerm
-                    ? highlightText(item.title, searchTerm)
-                    : item.title}
-                </h3>
-              )}
-              {item.content_text && item.content_text !== item.title && (
-                <span className={`${typeStyles.text}`}>
-                  {searchTerm
+              <span className="text-gray-700 leading-relaxed">
+                {item.content_text &&
+                  (searchTerm
                     ? highlightText(item.content_text, searchTerm)
-                    : highlightReferences(item.content_text, references)}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Always show children in content - remove expansion check */}
-        {hasChildren && item.content_type !== "article" && (
-          <div className="ml-4">
-            {item.children!.map((child) => renderContentItem(child, level + 1))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // Update navigateToItem to use contentExpandedItems
-  const navigateToItem = (id: number) => {
-    setSelectedItem(id);
-
-    // Expand all parent nodes in CONTENT to ensure the item is visible
-    const expandParents = (
-      nodes: HierarchyNode[],
-      targetId: number,
-      parents: number[] = []
-    ): boolean => {
-      for (const node of nodes) {
-        if (node.id === targetId) {
-          const newExpanded = new Set(contentExpandedItems);
-          parents.forEach((p) => newExpanded.add(p));
-          setContentExpandedItems(newExpanded);
-          return true;
-        }
-        if (node.children) {
-          if (expandParents(node.children, targetId, [...parents, node.id])) {
-            return true;
-          }
-        }
-      }
-      return false;
-    };
-
-    expandParents(data, id);
-
-    // Scroll logic remains the same...
-    setTimeout(() => {
-      const element = contentRefs.current[id];
-      if (element && contentContainerRef.current) {
-        const container = contentContainerRef.current;
-        const containerRect = container.getBoundingClientRect();
-        const elementRect = element.getBoundingClientRect();
-        const scrollPosition =
-          container.scrollTop + (elementRect.top - containerRect.top) - 20;
-
-        container.scrollTo({
-          top: scrollPosition,
-          behavior: "smooth",
-        });
-
-        element.style.transition = "all 0.3s ease";
-
-        setTimeout(() => {
-          element.style.backgroundColor = "";
-        }, 2000);
-      } else if (!element) {
-        console.warn(`Element with id ${id} not found in contentRefs`);
-      }
-    }, 200);
-  };
-
-  // Helper function to render children within an article
-  const renderArticleChild = (item: HierarchyNode, level: number = 0) => {
-    const hasChildren = item.children && item.children.length > 0;
-    const isExpanded = expandedItems.has(item.id);
-    const isHighlighted = selectedItem === item.id;
-    const isHovered = hoveredItem === item.id;
-    const references: Reference[] = (item as any).references || [];
-
-    // Sentences get their own separate block with border
-    if (item.content_type === "sentence") {
-      return (
-        <div
-          key={item.id}
-          ref={(el) => {
-            contentRefs.current[item.id] = el;
-          }}
-          className={`p-3  rounded  ${
-            isHighlighted
-              ? "bg-blue-50 border-blue-300 shadow-sm"
-              : isHovered
-              ? "bg-gray-200 border-gray-300"
-              : "bg-white"
-          }`}
-          onMouseEnter={() => setHoveredItem(item.id)}
-          onMouseLeave={() => setHoveredItem(null)}
-          onClick={() => navigateToItem(item.id)}
-        >
-          <div className="flex items-start gap-2">
-            <div className="flex-1">
-              {/* Sentence content with reference highlights */}
-              {(item.reference_code || item.content_text) && (
-                <div className="text-gray-700 leading-relaxed">
-                  <div className="flex flex-wrap items-start gap-2">
-                    {/* Reference Code */}
-                    {item.reference_code && <span>{item.reference_code}</span>}
-
-                    {/* Sentence Text */}
-                    {item.content_text && (
-                      <span className="break-words flex-1">
-                        {searchTerm
-                          ? highlightText(item.content_text, searchTerm)
-                          : highlightReferences(item.content_text, references)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Render all clauses and subclauses within this sentence block */}
-              {hasChildren && (
-                <div className="mt-2 space-y-1">
-                  {item.children!.map((child) => renderClauseContent(child))}
-                </div>
-              )}
-            </div>
-
-            {/* Expand/collapse button for sentence */}
-            {hasChildren && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleExpand(item.id);
-                }}
-                className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors font-medium flex-shrink-0"
-              ></button>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    // Default case for non-sentence children
-    return (
-      <div
-        key={item.id}
-        ref={(el) => {
-          contentRefs.current[item.id] = el;
-        }}
-        className="mb-2"
-        onClick={() => navigateToItem(item.id)}
-      >
-        {item.content_text && (
-          <div className="text-gray-700 leading-relaxed">
-            {searchTerm
-              ? highlightText(item.content_text, searchTerm)
-              : highlightReferences(item.content_text, references)}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // Helper function to render clauses and subclauses within a sentence
-  const renderClauseContent = (item: HierarchyNode, level: number = 0) => {
-    const hasChildren = item.children && item.children.length > 0;
-    const isExpanded = expandedItems.has(item.id);
-    const isHighlighted = selectedItem === item.id;
-    const isHovered = hoveredItem === item.id;
-    const references: Reference[] = (item as any).references || [];
-
-    if (item.content_type === "clause") {
-      return (
-        <div
-          key={item.id}
-          ref={(el) => {
-            contentRefs.current[item.id] = el;
-          }}
-          className={`ml-4 p-2 rounded  ${
-            isHighlighted
-              ? "bg-blue-50"
-              : isHovered
-              ? "bg-gray-100 border border-black"
-              : ""
-          }`}
-          onMouseEnter={() => setHoveredItem(item.id)}
-          onMouseLeave={() => setHoveredItem(null)}
-          onClick={(e) => {
-            e.stopPropagation();
-            navigateToItem(item.id);
-          }}
-        >
-          {/* Reference code and title in one line */}
-          <div className="flex items-start gap-1 ">
-            <span className="font-medium text-black shrink-0">
-              {item.reference_code}
-            </span>
-            <span className="text-black leading-relaxed">
-              {item.title &&
-                (searchTerm
-                  ? highlightText(item.title, searchTerm)
-                  : highlightReferences(item.title, references))}
-            </span>
-          </div>
-
-          {/* Render subclauses */}
-          {hasChildren && (
-            <div className="ml-4 mt-1 space-y-1">
-              {item.children!.map((child) => renderClauseContent(child))}
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    if (item.content_type === "subclause") {
-      return (
-        <div
-          key={item.id}
-          ref={(el) => {
-            contentRefs.current[item.id] = el;
-          }}
-          className={`ml-4 p-1 rounded transition-colors ${
-            isHighlighted
-              ? "bg-blue-50"
-              : isHovered
-              ? "bg-gray-100 border border-black"
-              : ""
-          }`}
-          onMouseEnter={() => setHoveredItem(item.id)}
-          onMouseLeave={() => setHoveredItem(null)}
-          onClick={(e) => {
-            e.stopPropagation();
-            navigateToItem(item.id);
-          }}
-        >
-          {/* For subclauses, you might want similar treatment */}
-          <div className="flex items-start gap-1">
-            {item.reference_code && (
-              <span className="font-medium text-gray-800 shrink-0">
-                {item.reference_code}
+                    : highlightReferences(
+                        item.content_text,
+                        item.references || []
+                      ))}
               </span>
-            )}
-            <span className="text-gray-700 leading-relaxed">
-              {item.content_text &&
-                (searchTerm
-                  ? highlightText(item.content_text, searchTerm)
-                  : highlightReferences(item.content_text, references))}
-            </span>
+            </div>
           </div>
-        </div>
-      );
-    }
+        );
+      }
 
-    return null;
-  };
+      return null;
+    },
+    [selectedItem, hoveredItem, searchTerm, highlightText, highlightReferences]
+  );
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            Loading Document
+          </h2>
+          <p className="text-gray-600">Loading building code data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="text-center text-red-600 max-w-md">
+          <p className="text-lg font-semibold mb-4">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Header */}
+      {/* Header - EXACTLY like your original */}
       <header className="bg-white border-b border-gray-200 shadow-sm flex-shrink-0">
-        <div className="max-w-[1800px] mx-auto px-8 py-4">
-          <div className="flex items-center justify-between gap-6">
+        <div className="max-w-[1800px] mx-auto px-8 py-2">
+          <div className="flex items-center justify-between">
             {/* Left side - Document info */}
-            <div className="flex items-center gap-4 flex-1 min-w-0">
-              <div className="bg-gradient-to-br from-blue-600 to-blue-700 text-white p-3 rounded-xl shadow-lg flex-shrink-0">
-                <Building size={28} />
-              </div>
+            <div className="flex items-center flex-1 min-w-0">
               <div className="min-w-0 flex-1">
                 <h1 className="text-xl font-bold text-gray-900 tracking-tight truncate">
                   {documentInfo?.title || "British Columbia Building Code 2024"}
                 </h1>
-                <p className="text-sm text-gray-600 mt-1 truncate">
-                  {documentInfo?.jurisdiction_name &&
-                    `${documentInfo.jurisdiction_name} • `}
-                  {documentInfo?.year || "2024"}
-                  {documentInfo?.version &&
-                    ` • Version ${documentInfo.version}`}
-                </p>
               </div>
             </div>
 
@@ -845,6 +824,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                 />
                 {searchTerm && (
                   <button
+                    title="search"
                     onClick={() => {
                       setSearchTerm("");
                       setSearchResults([]);
@@ -860,9 +840,9 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         </div>
       </header>
 
-      {/* Main Content Area - Dynamic columns based on search mode */}
+      {/* Main Content Area - EXACTLY like your original */}
       <div
-        className={`flex-1 flex overflow-hidden max-w-[1800px] mx-auto w-full px-6 py-6 gap-6`}
+        className={`flex-1 flex overflow-hidden max-w-[1800px] mx-auto w-full px-6 py-2 gap-6`}
       >
         {/* Search Results Column - Only shown in search mode */}
         {isSearchMode && (
@@ -885,7 +865,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                       ? "bg-blue-100 border-l-4 border-blue-600"
                       : ""
                   }`}
-                  onClick={() => navigateToItem(result.id)}
+                  onClick={() => handleNavigationClick(result)}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-gray-900 line-clamp-1">
@@ -926,12 +906,12 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               </h2>
             </div>
             <div className="overflow-y-auto h-full p-2">
-              {data.map((item) => renderNavigationItem(item))}
+              {navigationData.map((item) => renderNavigationItem(item))}
             </div>
           </aside>
         )}
 
-        {/* Content Area - Adjusts width based on mode */}
+        {/* Content Area */}
         <main
           className={`bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden ${
             isSearchMode ? "flex-1" : "w-3/4"
@@ -941,13 +921,18 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             <div
               className={`px-8 py-6 ${isSearchMode ? "max-w-4xl mx-auto" : ""}`}
             >
-              {data.length === 0 ? (
+              {contentLoading && (
+                <div className="flex justify-center py-4">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                </div>
+              )}
+
+              {currentContent.length === 0 ? (
                 <div className="text-center py-16">
-                  <div className="bg-gray-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Building size={32} className="text-gray-400" />
-                  </div>
                   <p className="text-gray-500 text-lg">
-                    No building code data available.
+                    {navigationData.length === 0
+                      ? "No building code data available."
+                      : "Select an item from the navigation to view content."}
                   </p>
                 </div>
               ) : (
@@ -962,15 +947,17 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                       </p>
                     </div>
                   )}
-                  {data.map((item) => renderContentItem(item))}
+                  {currentContent.map((item) => renderContentItem(item))}
                 </div>
               )}
             </div>
           </div>
         </main>
       </div>
+
+      <footer className="bg-white border-t border-gray-200 py-11 flex-shrink-0"></footer>
     </div>
   );
 };
 
-export default BuildingCodeViewer;
+export default React.memo(BuildingCodeViewer);

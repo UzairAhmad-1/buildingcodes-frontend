@@ -496,7 +496,7 @@ const LibraryHome: React.FC = () => {
               {searchQuery && (
                 <button
                   onClick={handleClearSearch}
-                  className="text-gray-400 hover:text-black transition-colors"
+                  className="text-gray-400 hover:text-black transition-colors cursor-pointer"
                   aria-label="Clear search"
                 >
                   <svg
@@ -517,7 +517,7 @@ const LibraryHome: React.FC = () => {
               <button
                 onClick={handleSearchButtonClick}
                 disabled={isSearching}
-                className="text-gray-400 hover:text-black transition-colors disabled:opacity-50"
+                className="text-gray-400 hover:text-black transition-colors disabled:opacity-50 cursor-pointer"
               >
                 {isSearching ? (
                   <Loader2 className="h-5 w-5 animate-spin" />

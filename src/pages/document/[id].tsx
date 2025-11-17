@@ -1,8 +1,8 @@
-// src/pages/document/[id].tsx
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import BuildingCodeViewer from "@/components/BuildingCodeViewer";
+import NonScrollableLayout from "@/components/NonScrollableLayout";
 import { libraryService } from "@/services/libraryService";
 interface PdfDocument {
   id: string;
@@ -53,7 +53,7 @@ const DocumentViewer: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
+      <div className="h-screen bg-gray-50 flex flex-col items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-gray-900 mb-2">
@@ -67,7 +67,7 @@ const DocumentViewer: React.FC = () => {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
+      <div className="h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
         <div className="max-w-md text-center">
           <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
@@ -96,10 +96,12 @@ const DocumentViewer: React.FC = () => {
 
   return (
     <>
-      <BuildingCodeViewer
-        documentId={id as string}
-        documentInfo={documentInfo || undefined}
-      />
+      <NonScrollableLayout>
+        <BuildingCodeViewer
+          documentId={id as string}
+          documentInfo={documentInfo || undefined}
+        />
+      </NonScrollableLayout>
     </>
   );
 };
