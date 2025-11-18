@@ -10,7 +10,7 @@ import { ChevronRight, Search, X, ExternalLink } from "lucide-react";
 import { HierarchyNode } from "@/types/buildingCode";
 import { buildingCodeService } from "@/services/buildingCodeService";
 import { useSearchParams } from "next/navigation";
-
+import AnimatedPopup from "@/components/AnimatedPopup";
 interface Reference {
   id: number;
   reference_text: string;
@@ -24,7 +24,10 @@ interface Reference {
   reference_position: number;
   target_content?: any;
 }
-
+interface ReferencePopup {
+  isOpen: boolean;
+  reference: Reference | null;
+}
 interface BuildingCodeViewerProps {
   documentId?: string;
   documentInfo?: {
@@ -56,7 +59,10 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   const [contentExpandedItems, setContentExpandedItems] = useState<Set<number>>(
     new Set()
   );
-
+  const [referencePopup, setReferencePopup] = useState<ReferencePopup>({
+    isOpen: false,
+    reference: null,
+  });
   const searchTimeoutRef = useRef<NodeJS.Timeout>();
 
   const params = useSearchParams();
@@ -66,6 +72,89 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   const isSearchMode = useMemo(() => {
     return searchTerm.trim().length > 0 && searchResults.length > 0;
   }, [searchTerm, searchResults]);
+
+  // Check if content is already loaded in current content
+  const isContentAlreadyLoaded = useCallback(
+    (contentId: number): boolean => {
+      const checkInContent = (nodes: HierarchyNode[]): boolean => {
+        for (const node of nodes) {
+          if (node.id === contentId) {
+            return true;
+          }
+          if (node.children && node.children.length > 0) {
+            if (checkInContent(node.children)) {
+              return true;
+            }
+          }
+        }
+        return false;
+      };
+
+      return checkInContent(currentContent);
+    },
+    [currentContent]
+  );
+
+  // Find parent content ID based on item type
+  const findParentContentId = useCallback(
+    (item: HierarchyNode): number => {
+      // For division, part, section - load the item itself
+      if (["division", "part", "section"].includes(item.content_type)) {
+        return item.id;
+      }
+
+      // For subsection, article, sentence, clause, subclause - find the parent part or section
+      let current = item;
+      while (current) {
+        if (
+          current.content_type === "part" ||
+          current.content_type === "section"
+        ) {
+          return current.id;
+        }
+        // Move up the hierarchy
+        current = findParentInNavigation(navigationData, current.parent_id);
+      }
+
+      // Fallback to the item itself
+      return item.id;
+    },
+    [navigationData]
+  );
+
+  // Helper function to find parent in navigation data
+  const findParentInNavigation = (
+    nodes: HierarchyNode[],
+    parentId: number | null
+  ): HierarchyNode | null => {
+    for (const node of nodes) {
+      if (node.id === parentId) {
+        return node;
+      }
+      if (node.children) {
+        const found = findParentInNavigation(node.children, parentId);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  // Helper function to find item in navigation data
+  const findItemInNavigation = useCallback(
+    (nodes: HierarchyNode[], id: number): HierarchyNode | null => {
+      for (const node of nodes) {
+        if (node.id === id) {
+          return node;
+        }
+        if (node.children) {
+          const found = findItemInNavigation(node.children, id);
+          if (found) return found;
+        }
+      }
+      return null;
+    },
+    []
+  );
 
   // Main data fetching - only navigation
   useEffect(() => {
@@ -170,17 +259,73 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     [documentId]
   );
 
-  // Navigation click handler
+  // Scroll to element without affecting layout
+  const scrollToElement = useCallback((elementId: number) => {
+    // Use requestAnimationFrame to ensure DOM is updated
+    requestAnimationFrame(() => {
+      const element = contentRefs.current[elementId];
+      const container = contentContainerRef.current;
+
+      if (element && container) {
+        // Calculate the position relative to the container
+        const containerRect = container.getBoundingClientRect();
+        const elementRect = element.getBoundingClientRect();
+
+        // Calculate scroll position to center the element
+        const scrollTop =
+          container.scrollTop +
+          (elementRect.top - containerRect.top) -
+          containerRect.height / 2 +
+          elementRect.height / 2;
+
+        // Smooth scroll to position
+        container.scrollTo({
+          top: scrollTop,
+          behavior: "smooth",
+        });
+      }
+    });
+  }, []);
+
+  // Navigation click handler - FIXED to prevent UI disruption
   const handleNavigationClick = useCallback(
     (item: HierarchyNode) => {
-      console.log("Navigation item clicked:", item.id);
+      console.log("Navigation item clicked:", item.id, item.content_type);
+
+      const contentIdToLoad = findParentContentId(item);
+      console.log("Content to load:", contentIdToLoad);
+      console.log(
+        "Is content already loaded?",
+        isContentAlreadyLoaded(item.id)
+      );
+
+      // Always set the selected item for navigation
       setSelectedItem(item.id);
-      loadContentForItem(item.id);
 
       // Auto-expand the clicked item in navigation
       setNavigationExpandedItems((prev) => new Set(prev).add(item.id));
+
+      // Check if the content is already loaded in current view
+      if (isContentAlreadyLoaded(item.id)) {
+        console.log("Content already loaded, just scrolling to item");
+        // Just scroll to the element without reloading
+        scrollToElement(item.id);
+        return;
+      }
+
+      console.log("Loading content for:", contentIdToLoad);
+      // Load content and then scroll to the item
+      loadContentForItem(contentIdToLoad).then(() => {
+        // Wait for content to render before scrolling
+        setTimeout(() => scrollToElement(item.id), 150);
+      });
     },
-    [loadContentForItem]
+    [
+      loadContentForItem,
+      findParentContentId,
+      isContentAlreadyLoaded,
+      scrollToElement,
+    ]
   );
 
   // Toggle navigation expansion
@@ -189,24 +334,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       if (event) event.stopPropagation();
 
       setNavigationExpandedItems((prev) => {
-        const newExpanded = new Set(prev);
-        if (newExpanded.has(id)) {
-          newExpanded.delete(id);
-        } else {
-          newExpanded.add(id);
-        }
-        return newExpanded;
-      });
-    },
-    []
-  );
-
-  // Toggle content expansion
-  const toggleContentExpand = useCallback(
-    (id: number, event?: React.MouseEvent) => {
-      if (event) event.stopPropagation();
-
-      setContentExpandedItems((prev) => {
         const newExpanded = new Set(prev);
         if (newExpanded.has(id)) {
           newExpanded.delete(id);
@@ -275,11 +402,77 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     (reference: Reference) => {
       if (reference.target_content_id) {
         setSelectedItem(reference.target_content_id);
-        loadContentForItem(reference.target_content_id);
+
+        // Check if reference content is already loaded
+        if (isContentAlreadyLoaded(reference.target_content_id)) {
+          console.log("Reference content already loaded, just scrolling");
+          scrollToElement(reference.target_content_id);
+        } else {
+          loadContentForItem(reference.target_content_id).then(() => {
+            setTimeout(() => scrollToElement(reference.target_content_id), 150);
+          });
+        }
       }
     },
-    [loadContentForItem]
+    [loadContentForItem, isContentAlreadyLoaded, scrollToElement]
   );
+
+  // Handle "see also" click
+  const handleSeeAlsoClick = useCallback(
+    (seeAlsoText: string) => {
+      // Extract the reference code from "See Note A-1.1.1.2." format
+      const match = seeAlsoText.match(/Note\s+([A-Za-z0-9.-]+)/);
+      if (match) {
+        const noteReference = match[1];
+        console.log("Looking for note:", noteReference);
+
+        // Find the note in navigation data
+        const findNote = (nodes: HierarchyNode[]): HierarchyNode | null => {
+          for (const node of nodes) {
+            if (
+              node.reference_code === noteReference ||
+              node.title?.includes(noteReference) ||
+              node.content_text?.includes(noteReference)
+            ) {
+              return node;
+            }
+            if (node.children) {
+              const found = findNote(node.children);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+
+        const noteItem = findNote(navigationData);
+        if (noteItem) {
+          console.log("Found note item:", noteItem.id);
+          handleNavigationClick(noteItem);
+        }
+      }
+    },
+    [navigationData, handleNavigationClick]
+  );
+
+  const handleReferenceClickWithPopup = useCallback(
+    (reference: Reference, event: React.MouseEvent) => {
+      event.stopPropagation();
+
+      setReferencePopup({
+        isOpen: true,
+        reference,
+      });
+    },
+    []
+  );
+
+  // Update the popup close function
+  const closeReferencePopup = useCallback(() => {
+    setReferencePopup({
+      isOpen: false,
+      reference: null,
+    });
+  }, []);
 
   // Function to highlight references in text
   const highlightReferences = useCallback(
@@ -314,15 +507,11 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           elements.push(
             <span
               key={`ref-${index}`}
-              className="text-purple-800 px-1 rounded cursor-pointer transition-colors border font-medium"
+              className="text-purple-800 cursor-pointer italic hover:underline"
               title={`Click to view definition of ${refText}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleReferenceClick(ref);
-              }}
+              onClick={(e) => handleReferenceClickWithPopup(ref, e)}
             >
               {text.substring(refIndex, refIndex + refText.length)}
-              <ExternalLink size={12} className="inline ml-1" />
             </span>
           );
 
@@ -338,7 +527,49 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
       return <>{elements}</>;
     },
-    [handleReferenceClick]
+    [handleReferenceClickWithPopup]
+  );
+
+  // Function to render "see also" content
+  const renderSeeAlsoContent = useCallback(
+    (item: HierarchyNode) => {
+      if (item.content_type !== "see_also" || !item.content_text) {
+        return null;
+      }
+
+      // Parse "See Note A-1.1.1.2." format
+      const seeAlsoText = item.content_text;
+      const seeAlsoMatch = seeAlsoText.match(
+        /\((See)\s+(Note\s+[A-Za-z0-9.-]+)\)/
+      );
+
+      if (seeAlsoMatch) {
+        const [, seePart, notePart] = seeAlsoMatch;
+        return (
+          <div className="mt-2 text-sm">
+            <span className="text-black">({seePart} </span>
+            <span
+              className="text-blue-600 underline cursor-pointer hover:text-blue-800 transition-colors"
+              onClick={() => handleSeeAlsoClick(seeAlsoText)}
+            >
+              {notePart}
+            </span>
+            <span className="text-black">)</span>
+          </div>
+        );
+      }
+
+      // Fallback for other formats
+      return (
+        <div
+          className="mt-2 text-sm text-blue-600 underline cursor-pointer hover:text-blue-800 transition-colors"
+          onClick={() => handleSeeAlsoClick(seeAlsoText)}
+        >
+          {seeAlsoText}
+        </div>
+      );
+    },
+    [handleSeeAlsoClick]
   );
 
   const highlightText = useCallback((text: string, highlight: string) => {
@@ -367,15 +598,16 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       section: { text: "text-xl text-black font-normal" },
       subsection: { text: "text-lg text-black font-normal" },
       article: { text: "text-lg text-black font-normal" },
-      sentence: { text: "text-sm text-black font-normal" },
-      clause: { text: "text-sm text-black font-normal" },
-      subclause: { text: "text-sm text-black font-normal" },
+      sentence: { text: "text-xs text-black font-normal" },
+      clause: { text: "text-xs text-black font-normal" },
+      subclause: { text: "text-xs text-black font-normal" },
+      see_also: { text: "text-xs text-blue-600 underline cursor-pointer" },
     };
 
-    return styles[type] || { text: "text-sm text-black font-normal" };
+    return styles[type] || { text: "text-xs text-black font-normal" };
   };
 
-  // Navigation item renderer - EXACTLY like your original but collapsed by default
+  // Navigation item renderer
   const renderNavigationItem = useCallback(
     (item: HierarchyNode, level: number = 0) => {
       const hasChildren = item.children && item.children.length > 0;
@@ -453,9 +685,18 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     ]
   );
 
-  // Content item renderer - EXACTLY like your original (always expanded)
+  // Content item renderer
   const renderContentItem = useCallback(
     (item: HierarchyNode, level: number = 0) => {
+      // Handle see_also items separately
+      if (item.content_type === "see_also") {
+        return (
+          <div key={item.id} className="mb-2">
+            {renderSeeAlsoContent(item)}
+          </div>
+        );
+      }
+
       const hasChildren = item.children && item.children.length > 0;
       const isExpanded = contentExpandedItems.has(item.id);
       const isHighlighted = selectedItem === item.id;
@@ -505,7 +746,12 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
               {hasChildren && (
                 <div className="space-y-3">
-                  {item.children!.map((child) => renderArticleChild(child))}
+                  {item.children!.map((child) => {
+                    if (child.content_type === "see_also") {
+                      return renderSeeAlsoContent(child);
+                    }
+                    return renderArticleChild(child);
+                  })}
                 </div>
               )}
             </div>
@@ -556,13 +802,27 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                 )}
               </div>
             )}
+
+            {/* Render see_also children directly under the content */}
+            {hasChildren &&
+              item.children!.some(
+                (child) => child.content_type === "see_also"
+              ) && (
+                <div className="mt-2">
+                  {item
+                    .children!.filter(
+                      (child) => child.content_type === "see_also"
+                    )
+                    .map((child) => renderSeeAlsoContent(child))}
+                </div>
+              )}
           </div>
 
           {hasChildren && item.content_type !== "article" && (
             <div className="ml-4">
-              {item.children!.map((child) =>
-                renderContentItem(child, level + 1)
-              )}
+              {item
+                .children!.filter((child) => child.content_type !== "see_also")
+                .map((child) => renderContentItem(child, level + 1))}
             </div>
           )}
         </div>
@@ -575,12 +835,18 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       searchTerm,
       highlightText,
       highlightReferences,
+      renderSeeAlsoContent,
     ]
   );
 
   // Helper function to render children within an article
   const renderArticleChild = useCallback(
     (item: HierarchyNode, level: number = 0) => {
+      // Handle see_also items
+      if (item.content_type === "see_also") {
+        return renderSeeAlsoContent(item);
+      }
+
       const hasChildren = item.children && item.children.length > 0;
       const isHighlighted = selectedItem === item.id;
       const isHovered = hoveredItem === item.id;
@@ -630,10 +896,28 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                   </div>
                 )}
 
+                {/* Render see_also children */}
+                {hasChildren &&
+                  item.children!.some(
+                    (child) => child.content_type === "see_also"
+                  ) && (
+                    <div className="mt-2">
+                      {item
+                        .children!.filter(
+                          (child) => child.content_type === "see_also"
+                        )
+                        .map((child) => renderSeeAlsoContent(child))}
+                    </div>
+                  )}
+
                 {/* Render all clauses and subclauses within this sentence block */}
                 {hasChildren && (
                   <div className="mt-2 space-y-1">
-                    {item.children!.map((child) => renderClauseContent(child))}
+                    {item
+                      .children!.filter(
+                        (child) => child.content_type !== "see_also"
+                      )
+                      .map((child) => renderClauseContent(child))}
                   </div>
                 )}
               </div>
@@ -659,15 +943,41 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                 : highlightReferences(item.content_text, item.references || [])}
             </div>
           )}
+
+          {/* Render see_also children */}
+          {hasChildren &&
+            item.children!.some(
+              (child) => child.content_type === "see_also"
+            ) && (
+              <div className="mt-1">
+                {item
+                  .children!.filter(
+                    (child) => child.content_type === "see_also"
+                  )
+                  .map((child) => renderSeeAlsoContent(child))}
+              </div>
+            )}
         </div>
       );
     },
-    [selectedItem, hoveredItem, searchTerm, highlightText, highlightReferences]
+    [
+      selectedItem,
+      hoveredItem,
+      searchTerm,
+      highlightText,
+      highlightReferences,
+      renderSeeAlsoContent,
+    ]
   );
 
   // Helper function to render clauses and subclauses within a sentence
   const renderClauseContent = useCallback(
     (item: HierarchyNode, level: number = 0) => {
+      // Handle see_also items
+      if (item.content_type === "see_also") {
+        return renderSeeAlsoContent(item);
+      }
+
       const hasChildren = item.children && item.children.length > 0;
       const isHighlighted = selectedItem === item.id;
       const isHovered = hoveredItem === item.id;
@@ -694,7 +1004,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             }}
           >
             {/* Reference code and title in one line */}
-            <div className="flex items-start gap-1">
+            <div className="flex items-start gap-1 text-sm">
               <span className="font-medium text-black shrink-0">
                 {item.reference_code}
               </span>
@@ -706,10 +1016,28 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               </span>
             </div>
 
+            {/* Render see_also children */}
+            {hasChildren &&
+              item.children!.some(
+                (child) => child.content_type === "see_also"
+              ) && (
+                <div className="mt-1">
+                  {item
+                    .children!.filter(
+                      (child) => child.content_type === "see_also"
+                    )
+                    .map((child) => renderSeeAlsoContent(child))}
+                </div>
+              )}
+
             {/* Render subclauses */}
             {hasChildren && (
               <div className="ml-4 mt-1 space-y-1">
-                {item.children!.map((child) => renderClauseContent(child))}
+                {item
+                  .children!.filter(
+                    (child) => child.content_type !== "see_also"
+                  )
+                  .map((child) => renderClauseContent(child))}
               </div>
             )}
           </div>
@@ -754,13 +1082,34 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                       ))}
               </span>
             </div>
+
+            {/* Render see_also children */}
+            {hasChildren &&
+              item.children!.some(
+                (child) => child.content_type === "see_also"
+              ) && (
+                <div className="mt-1">
+                  {item
+                    .children!.filter(
+                      (child) => child.content_type === "see_also"
+                    )
+                    .map((child) => renderSeeAlsoContent(child))}
+                </div>
+              )}
           </div>
         );
       }
 
       return null;
     },
-    [selectedItem, hoveredItem, searchTerm, highlightText, highlightReferences]
+    [
+      selectedItem,
+      hoveredItem,
+      searchTerm,
+      highlightText,
+      highlightReferences,
+      renderSeeAlsoContent,
+    ]
   );
 
   if (loading) {
@@ -795,7 +1144,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Header - EXACTLY like your original */}
+      {/* Header */}
       <header className="bg-white border-b border-gray-200 shadow-sm flex-shrink-0">
         <div className="max-w-[1800px] mx-auto px-8 py-2">
           <div className="flex items-center justify-between">
@@ -840,7 +1189,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         </div>
       </header>
 
-      {/* Main Content Area - EXACTLY like your original */}
+      {/* Main Content Area */}
       <div
         className={`flex-1 flex overflow-hidden max-w-[1800px] mx-auto w-full px-6 py-2 gap-6`}
       >
@@ -956,6 +1305,30 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       </div>
 
       <footer className="bg-white border-t border-gray-200 py-11 flex-shrink-0"></footer>
+
+      {referencePopup.isOpen && referencePopup.reference && (
+        <AnimatedPopup
+          isOpen={referencePopup.isOpen}
+          onClose={closeReferencePopup}
+          title={referencePopup.reference.reference_text}
+          maxWidth="max-w-2xl"
+        >
+          {/* Show the definition from hyperlink_text */}
+          {referencePopup.reference.hyperlink_text ? (
+            <div className="text-base text-gray-700 leading-relaxed bg-gray-50 p-4 rounded-lg border">
+              {referencePopup.reference.hyperlink_text}
+            </div>
+          ) : referencePopup.reference.target_content ? (
+            <div className="text-base text-gray-700 leading-relaxed bg-gray-50 p-4 rounded-lg border">
+              {referencePopup.reference.target_content.content_text}
+            </div>
+          ) : (
+            <div className="text-base text-gray-500 italic bg-gray-50 p-4 rounded-lg border">
+              Definition not available
+            </div>
+          )}
+        </AnimatedPopup>
+      )}
     </div>
   );
 };
