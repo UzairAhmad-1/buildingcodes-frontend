@@ -602,6 +602,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       clause: { text: "text-xs text-black font-normal" },
       subclause: { text: "text-xs text-black font-normal" },
       see_also: { text: "text-xs text-blue-600 underline cursor-pointer" },
+      definition: { text: "text-sm text-black font-normal" },
     };
 
     return styles[type] || { text: "text-xs text-black font-normal" };
@@ -685,6 +686,99 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     ]
   );
 
+  const renderDefinition = useCallback(
+    (definition: HierarchyNode, level: number = 0) => {
+      const hasChildren = definition.children && definition.children.length > 0;
+
+      return (
+        <div
+          key={definition.id}
+          ref={(el) => {
+            contentRefs.current[definition.id] = el;
+          }}
+          className="bg-white" // always white
+          onMouseEnter={() => setHoveredItem(definition.id)} // event kept but no visual effect
+          onMouseLeave={() => setHoveredItem(null)}
+          onClick={() => setSelectedItem(definition.id)}
+        >
+          {/* Definition one-liner */}
+          <div className="text-sm text-black leading-relaxed">
+            {definition.title && (
+              <span className="italic text-black">
+                {searchTerm
+                  ? highlightText(definition.title, searchTerm)
+                  : definition.title}
+              </span>
+            )}
+
+            {definition.content_text && (
+              <span className="ml-1">
+                {searchTerm
+                  ? highlightText(definition.content_text, searchTerm)
+                  : highlightReferences(
+                      definition.content_text,
+                      definition.references || []
+                    )}
+              </span>
+            )}
+          </div>
+
+          {/* Child clauses */}
+          {hasChildren && (
+            <div className="mt-2 ml-4 space-y-1">
+              {definition.children!.map((child) => {
+                if (child.content_type === "clause") {
+                  return (
+                    <div
+                      key={child.id}
+                      className="text-sm text-black leading-relaxed hover:bg-gray-100 hover:border hover:border-black"
+                    >
+                      {child.title && (
+                        <div className="flex items-start gap-1">
+                          <span className="font-medium">
+                            {child.reference_code}
+                          </span>
+                          <span>
+                            {searchTerm
+                              ? highlightText(child.title, searchTerm)
+                              : highlightReferences(
+                                  child.title,
+                                  child.references || []
+                                )}
+                          </span>
+                        </div>
+                      )}
+
+                      {child.content_text && (
+                        <div className="ml-4">
+                          {searchTerm
+                            ? highlightText(child.content_text, searchTerm)
+                            : highlightReferences(
+                                child.content_text,
+                                child.references || []
+                              )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                if (child.content_type === "see_also") {
+                  return (
+                    <div key={child.id}>{renderSeeAlsoContent(child)}</div>
+                  );
+                }
+
+                return null;
+              })}
+            </div>
+          )}
+        </div>
+      );
+    },
+    [searchTerm, highlightText, highlightReferences, renderSeeAlsoContent]
+  );
+
   // Content item renderer
   const renderContentItem = useCallback(
     (item: HierarchyNode, level: number = 0) => {
@@ -750,7 +844,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                     if (child.content_type === "see_also") {
                       return renderSeeAlsoContent(child);
                     }
-                    return renderArticleChild(child);
+                    // Pass the parent item (article) to renderArticleChild
+                    return renderArticleChild(child, 0, item);
                   })}
                 </div>
               )}
@@ -839,143 +934,17 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     ]
   );
 
-  // Helper function to render children within an article
-  const renderArticleChild = useCallback(
-    (item: HierarchyNode, level: number = 0) => {
-      // Handle see_also items
-      if (item.content_type === "see_also") {
-        return renderSeeAlsoContent(item);
-      }
-
-      const hasChildren = item.children && item.children.length > 0;
-      const isHighlighted = selectedItem === item.id;
-      const isHovered = hoveredItem === item.id;
-
-      // Sentences get their own separate block with border
-      if (item.content_type === "sentence") {
-        return (
-          <div
-            key={item.id}
-            ref={(el) => {
-              contentRefs.current[item.id] = el;
-            }}
-            className={`p-3 rounded ${
-              isHighlighted
-                ? "bg-blue-50 border-blue-300 shadow-sm"
-                : isHovered
-                ? "bg-gray-200 border-gray-300"
-                : "bg-white"
-            }`}
-            onMouseEnter={() => setHoveredItem(item.id)}
-            onMouseLeave={() => setHoveredItem(null)}
-            onClick={() => setSelectedItem(item.id)}
-          >
-            <div className="flex items-start gap-2">
-              <div className="flex-1">
-                {/* Sentence content with reference highlights */}
-                {(item.reference_code || item.content_text) && (
-                  <div className="text-gray-700 leading-relaxed">
-                    <div className="flex flex-wrap items-start gap-2">
-                      {/* Reference Code */}
-                      {item.reference_code && (
-                        <span>{item.reference_code}</span>
-                      )}
-
-                      {/* Sentence Text */}
-                      {item.content_text && (
-                        <span className="break-words flex-1">
-                          {searchTerm
-                            ? highlightText(item.content_text, searchTerm)
-                            : highlightReferences(
-                                item.content_text,
-                                item.references || []
-                              )}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Render see_also children */}
-                {hasChildren &&
-                  item.children!.some(
-                    (child) => child.content_type === "see_also"
-                  ) && (
-                    <div className="mt-2">
-                      {item
-                        .children!.filter(
-                          (child) => child.content_type === "see_also"
-                        )
-                        .map((child) => renderSeeAlsoContent(child))}
-                    </div>
-                  )}
-
-                {/* Render all clauses and subclauses within this sentence block */}
-                {hasChildren && (
-                  <div className="mt-2 space-y-1">
-                    {item
-                      .children!.filter(
-                        (child) => child.content_type !== "see_also"
-                      )
-                      .map((child) => renderClauseContent(child))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      }
-
-      // Default case for non-sentence children
-      return (
-        <div
-          key={item.id}
-          ref={(el) => {
-            contentRefs.current[item.id] = el;
-          }}
-          className="mb-2"
-          onClick={() => setSelectedItem(item.id)}
-        >
-          {item.content_text && (
-            <div className="text-gray-700 leading-relaxed">
-              {searchTerm
-                ? highlightText(item.content_text, searchTerm)
-                : highlightReferences(item.content_text, item.references || [])}
-            </div>
-          )}
-
-          {/* Render see_also children */}
-          {hasChildren &&
-            item.children!.some(
-              (child) => child.content_type === "see_also"
-            ) && (
-              <div className="mt-1">
-                {item
-                  .children!.filter(
-                    (child) => child.content_type === "see_also"
-                  )
-                  .map((child) => renderSeeAlsoContent(child))}
-              </div>
-            )}
-        </div>
-      );
-    },
-    [
-      selectedItem,
-      hoveredItem,
-      searchTerm,
-      highlightText,
-      highlightReferences,
-      renderSeeAlsoContent,
-    ]
-  );
-
-  // Helper function to render clauses and subclauses within a sentence
+  // Update the renderClauseContent function to handle definitions within clauses
   const renderClauseContent = useCallback(
     (item: HierarchyNode, level: number = 0) => {
       // Handle see_also items
       if (item.content_type === "see_also") {
         return renderSeeAlsoContent(item);
+      }
+
+      // Handle definition items within clauses
+      if (item.content_type === "definition") {
+        return renderDefinition(item, level);
       }
 
       const hasChildren = item.children && item.children.length > 0;
@@ -1030,14 +999,19 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                 </div>
               )}
 
-            {/* Render subclauses */}
+            {/* Render subclauses and definitions */}
             {hasChildren && (
-              <div className="ml-4 mt-1 space-y-1">
+              <div className="ml-4 mt-1 space-y-2">
                 {item
                   .children!.filter(
                     (child) => child.content_type !== "see_also"
                   )
-                  .map((child) => renderClauseContent(child))}
+                  .map((child) => {
+                    if (child.content_type === "definition") {
+                      return renderDefinition(child, level + 1);
+                    }
+                    return renderClauseContent(child, level + 1);
+                  })}
               </div>
             )}
           </div>
@@ -1109,6 +1083,235 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       highlightText,
       highlightReferences,
       renderSeeAlsoContent,
+      renderDefinition,
+    ]
+  );
+
+  // Helper function to render clauses and subclauses within a sentence
+  // Helper function to render clauses and subclauses within a sentence
+  const renderArticleChild = useCallback(
+    (item: HierarchyNode, level: number = 0, parentItem?: HierarchyNode) => {
+      // Handle definition items within articles
+      console.log("renderArticleChild:", {
+        itemId: item.id,
+        itemType: item.content_type,
+        itemText: item.content_text?.substring(0, 50),
+        parentItemId: parentItem?.id,
+        parentItemType: parentItem?.content_type,
+        parentItemTitle: parentItem?.title,
+        isDefinedTerms:
+          parentItem &&
+          parentItem.content_type === "article" &&
+          (parentItem.title?.toLowerCase().includes("defined terms") ||
+            parentItem.content_text?.toLowerCase().includes("defined terms")),
+      });
+      if (item.content_type === "definition") {
+        return renderDefinition(item, level);
+      }
+
+      // Handle see_also items
+      if (item.content_type === "see_also") {
+        return renderSeeAlsoContent(item);
+      }
+
+      // Check if this is a "Defined Terms" section
+      const isDefinedTermsSection =
+        parentItem &&
+        parentItem.content_type === "article" &&
+        (parentItem.title?.toLowerCase().includes("defined terms") ||
+          parentItem.content_text?.toLowerCase().includes("defined terms"));
+
+      // For sentences in "Defined Terms" sections, render both the sentence AND its definitions
+      if (item.content_type === "sentence" && isDefinedTermsSection) {
+        const hasChildren = item.children && item.children.length > 0;
+        const isHighlighted = selectedItem === item.id;
+        const isHovered = hoveredItem === item.id;
+
+        return (
+          <div
+            key={item.id}
+            ref={(el) => {
+              contentRefs.current[item.id] = el;
+            }}
+            className={`p-3 rounded ${
+              isHighlighted
+                ? "bg-blue-50 border-blue-300 shadow-sm"
+                : isHovered
+                ? "bg-gray-200 border-gray-300"
+                : "bg-white"
+            }`}
+            onMouseEnter={() => setHoveredItem(item.id)}
+            onMouseLeave={() => setHoveredItem(null)}
+            onClick={() => setSelectedItem(item.id)}
+          >
+            {/* Render the sentence content */}
+            {(item.reference_code || item.content_text) && (
+              <div className="text-gray-700 leading-relaxed mb-3">
+                <div className="flex flex-wrap items-start gap-2">
+                  {/* Reference Code */}
+                  {item.reference_code && <span>{item.reference_code}</span>}
+
+                  {/* Sentence Text */}
+                  {item.content_text && (
+                    <span className="break-words flex-1">
+                      {searchTerm
+                        ? highlightText(item.content_text, searchTerm)
+                        : highlightReferences(
+                            item.content_text,
+                            item.references || []
+                          )}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Render definitions as children of this sentence */}
+            {hasChildren && (
+              <div className="space-y-4">
+                {item.children!.map((child) => {
+                  if (child.content_type === "definition") {
+                    return renderDefinition(child);
+                  }
+                  return null;
+                })}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // Regular sentence rendering for non-Defined Terms sections
+      if (item.content_type === "sentence") {
+        const hasChildren = item.children && item.children.length > 0;
+        const isHighlighted = selectedItem === item.id;
+        const isHovered = hoveredItem === item.id;
+
+        return (
+          <div
+            key={item.id}
+            ref={(el) => {
+              contentRefs.current[item.id] = el;
+            }}
+            className={`p-3 rounded ${
+              isHighlighted
+                ? "bg-blue-50 border-blue-300 shadow-sm"
+                : isHovered
+                ? "bg-gray-200 border-gray-300"
+                : "bg-white"
+            }`}
+            onMouseEnter={() => setHoveredItem(item.id)}
+            onMouseLeave={() => setHoveredItem(null)}
+            onClick={() => setSelectedItem(item.id)}
+          >
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                {/* Sentence content with reference highlights */}
+                {(item.reference_code || item.content_text) && (
+                  <div className="text-gray-700 leading-relaxed">
+                    <div className="flex flex-wrap items-start gap-2">
+                      {/* Reference Code */}
+                      {item.reference_code && (
+                        <span>{item.reference_code}</span>
+                      )}
+
+                      {/* Sentence Text */}
+                      {item.content_text && (
+                        <span className="break-words flex-1">
+                          {searchTerm
+                            ? highlightText(item.content_text, searchTerm)
+                            : highlightReferences(
+                                item.content_text,
+                                item.references || []
+                              )}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Render see_also children */}
+                {hasChildren &&
+                  item.children!.some(
+                    (child) => child.content_type === "see_also"
+                  ) && (
+                    <div className="mt-2">
+                      {item
+                        .children!.filter(
+                          (child) => child.content_type === "see_also"
+                        )
+                        .map((child) => renderSeeAlsoContent(child))}
+                    </div>
+                  )}
+
+                {/* Render all children including definitions, clauses and subclauses */}
+                {hasChildren && (
+                  <div className="mt-2 space-y-3">
+                    {item.children!.map((child) => {
+                      // Handle definitions within sentences
+                      if (child.content_type === "definition") {
+                        return renderDefinition(child);
+                      }
+                      // Handle clauses and subclauses
+                      if (
+                        child.content_type === "clause" ||
+                        child.content_type === "subclause"
+                      ) {
+                        return renderClauseContent(child);
+                      }
+                      return null;
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Default case for non-sentence children
+      return (
+        <div
+          key={item.id}
+          ref={(el) => {
+            contentRefs.current[item.id] = el;
+          }}
+          className="mb-2"
+          onClick={() => setSelectedItem(item.id)}
+        >
+          {item.content_text && (
+            <div className="text-gray-700 leading-relaxed">
+              {searchTerm
+                ? highlightText(item.content_text, searchTerm)
+                : highlightReferences(item.content_text, item.references || [])}
+            </div>
+          )}
+
+          {/* Render see_also children */}
+          {hasChildren &&
+            item.children!.some(
+              (child) => child.content_type === "see_also"
+            ) && (
+              <div className="mt-1">
+                {item
+                  .children!.filter(
+                    (child) => child.content_type === "see_also"
+                  )
+                  .map((child) => renderSeeAlsoContent(child))}
+              </div>
+            )}
+        </div>
+      );
+    },
+    [
+      selectedItem,
+      hoveredItem,
+      searchTerm,
+      highlightText,
+      highlightReferences,
+      renderSeeAlsoContent,
+      renderDefinition,
+      renderClauseContent,
     ]
   );
 
@@ -1312,18 +1515,22 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           onClose={closeReferencePopup}
           title={referencePopup.reference.reference_text}
           maxWidth="max-w-2xl"
+          copyText={
+            referencePopup.reference.hyperlink_text ||
+            referencePopup.reference.target_content?.content_text ||
+            "Definition not available"
+          }
         >
-          {/* Show the definition from hyperlink_text */}
           {referencePopup.reference.hyperlink_text ? (
-            <div className="text-base text-gray-700 leading-relaxed bg-gray-50 p-4 rounded-lg border">
+            <div className="text-base text-gray-700 leading-relaxed bg-gray-50 p-4 rounded-lg">
               {referencePopup.reference.hyperlink_text}
             </div>
           ) : referencePopup.reference.target_content ? (
-            <div className="text-base text-gray-700 leading-relaxed bg-gray-50 p-4 rounded-lg border">
+            <div className="text-base text-gray-700 leading-relaxed bg-gray-50 p-4 rounded-lg">
               {referencePopup.reference.target_content.content_text}
             </div>
           ) : (
-            <div className="text-base text-gray-500 italic bg-gray-50 p-4 rounded-lg border">
+            <div className="text-base text-gray-500 italic bg-gray-50 p-4 rounded-lg">
               Definition not available
             </div>
           )}

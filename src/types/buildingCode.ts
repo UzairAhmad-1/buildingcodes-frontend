@@ -7,7 +7,8 @@ export type ContentType =
   | "sentence"
   | "clause"
   | "subclause"
-  | "see_also";
+  | "see_also"
+  | "definition";
 export interface Reference {
   id: number;
   reference_text: string;
