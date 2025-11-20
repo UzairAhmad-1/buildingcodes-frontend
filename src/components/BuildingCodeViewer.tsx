@@ -6,11 +6,12 @@ import React, {
   useRef,
   useCallback,
 } from "react";
-import { ChevronRight, Search, X, ExternalLink } from "lucide-react";
+import { ChevronRight, Search, X, ExternalLink, Menu } from "lucide-react";
 import { HierarchyNode } from "@/types/buildingCode";
 import { buildingCodeService } from "@/services/buildingCodeService";
 import { useSearchParams } from "next/navigation";
 import AnimatedPopup from "@/components/AnimatedPopup";
+
 interface Reference {
   id: number;
   reference_text: string;
@@ -24,10 +25,12 @@ interface Reference {
   reference_position: number;
   target_content?: any;
 }
+
 interface ReferencePopup {
   isOpen: boolean;
   reference: Reference | null;
 }
+
 interface BuildingCodeViewerProps {
   documentId?: string;
   documentInfo?: {
@@ -51,6 +54,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   const [selectedItem, setSelectedItem] = useState<number | null>(null);
   const [searchResults, setSearchResults] = useState<HierarchyNode[]>([]);
   const [hoveredItem, setHoveredItem] = useState<number | null>(null);
+  const [showMobileNav, setShowMobileNav] = useState(false);
   const contentRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
   const contentContainerRef = useRef<HTMLDivElement>(null);
   const [navigationExpandedItems, setNavigationExpandedItems] = useState<
@@ -67,6 +71,22 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
   const params = useSearchParams();
   const highlightParam = params.get("highlight");
+
+  // Check if mobile view
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+
+    return () => {
+      window.removeEventListener("resize", checkMobile);
+    };
+  }, []);
 
   // Memoized values
   const isSearchMode = useMemo(() => {
@@ -250,35 +270,36 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         };
         collectAllIds([contentItem]);
         setContentExpandedItems(allContentIds);
+
+        // Close mobile nav when content is loaded on mobile
+        if (isMobile) {
+          setShowMobileNav(false);
+        }
       } catch (error) {
         console.error("Error loading content:", error);
       } finally {
         setContentLoading(false);
       }
     },
-    [documentId]
+    [documentId, isMobile]
   );
 
   // Scroll to element without affecting layout
   const scrollToElement = useCallback((elementId: number) => {
-    // Use requestAnimationFrame to ensure DOM is updated
     requestAnimationFrame(() => {
       const element = contentRefs.current[elementId];
       const container = contentContainerRef.current;
 
       if (element && container) {
-        // Calculate the position relative to the container
         const containerRect = container.getBoundingClientRect();
         const elementRect = element.getBoundingClientRect();
 
-        // Calculate scroll position to center the element
         const scrollTop =
           container.scrollTop +
           (elementRect.top - containerRect.top) -
           containerRect.height / 2 +
           elementRect.height / 2;
 
-        // Smooth scroll to position
         container.scrollTo({
           top: scrollTop,
           behavior: "smooth",
@@ -287,7 +308,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     });
   }, []);
 
-  // Navigation click handler - FIXED to prevent UI disruption
+  // Navigation click handler
   const handleNavigationClick = useCallback(
     (item: HierarchyNode) => {
       console.log("Navigation item clicked:", item.id, item.content_type);
@@ -308,15 +329,12 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       // Check if the content is already loaded in current view
       if (isContentAlreadyLoaded(item.id)) {
         console.log("Content already loaded, just scrolling to item");
-        // Just scroll to the element without reloading
         scrollToElement(item.id);
         return;
       }
 
       console.log("Loading content for:", contentIdToLoad);
-      // Load content and then scroll to the item
       loadContentForItem(contentIdToLoad).then(() => {
-        // Wait for content to render before scrolling
         setTimeout(() => scrollToElement(item.id), 150);
       });
     },
@@ -370,7 +388,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           setSearchResults(searchResponse.results);
         } catch (error) {
           console.error("Search error:", error);
-          // Fallback to client-side search if API fails
           const results: HierarchyNode[] = [];
           const searchInNodes = (nodes: HierarchyNode[]) => {
             nodes.forEach((node) => {
@@ -403,7 +420,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       if (reference.target_content_id) {
         setSelectedItem(reference.target_content_id);
 
-        // Check if reference content is already loaded
         if (isContentAlreadyLoaded(reference.target_content_id)) {
           console.log("Reference content already loaded, just scrolling");
           scrollToElement(reference.target_content_id);
@@ -420,13 +436,11 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   // Handle "see also" click
   const handleSeeAlsoClick = useCallback(
     (seeAlsoText: string) => {
-      // Extract the reference code from "See Note A-1.1.1.2." format
       const match = seeAlsoText.match(/Note\s+([A-Za-z0-9.-]+)/);
       if (match) {
         const noteReference = match[1];
         console.log("Looking for note:", noteReference);
 
-        // Find the note in navigation data
         const findNote = (nodes: HierarchyNode[]): HierarchyNode | null => {
           for (const node of nodes) {
             if (
@@ -537,7 +551,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         return null;
       }
 
-      // Parse "See Note A-1.1.1.2." format
       const seeAlsoText = item.content_text;
       const seeAlsoMatch = seeAlsoText.match(
         /\((See)\s+(Note\s+[A-Za-z0-9.-]+)\)/
@@ -559,7 +572,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         );
       }
 
-      // Fallback for other formats
       return (
         <div
           className="mt-2 text-sm text-blue-600 underline cursor-pointer hover:text-blue-800 transition-colors"
@@ -696,12 +708,11 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           ref={(el) => {
             contentRefs.current[definition.id] = el;
           }}
-          className="bg-white" // always white
-          onMouseEnter={() => setHoveredItem(definition.id)} // event kept but no visual effect
+          className="bg-white"
+          onMouseEnter={() => setHoveredItem(definition.id)}
           onMouseLeave={() => setHoveredItem(null)}
           onClick={() => setSelectedItem(definition.id)}
         >
-          {/* Definition one-liner */}
           <div className="text-sm text-black leading-relaxed">
             {definition.title && (
               <span className="italic text-black">
@@ -723,7 +734,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             )}
           </div>
 
-          {/* Child clauses */}
           {hasChildren && (
             <div className="mt-2 ml-4 space-y-1">
               {definition.children!.map((child) => {
@@ -779,10 +789,22 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     [searchTerm, highlightText, highlightReferences, renderSeeAlsoContent]
   );
 
+  const handleGridItemClick = useCallback(
+    (child: HierarchyNode) => {
+      console.log("Grid item clicked:", child.id, child.content_type);
+      setSelectedItem(child.id);
+
+      console.log("Loading grid item content:", child.id);
+      loadContentForItem(child.id).then(() => {
+        setTimeout(() => scrollToElement(child.id), 150);
+      });
+    },
+    [loadContentForItem, scrollToElement]
+  );
+
   // Content item renderer
   const renderContentItem = useCallback(
     (item: HierarchyNode, level: number = 0) => {
-      // Handle see_also items separately
       if (item.content_type === "see_also") {
         return (
           <div key={item.id} className="mb-2">
@@ -791,17 +813,99 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         );
       }
 
+      const isLargeContent = item.metadata?.isLargeContent;
+      const contentType = item.content_type;
+
       const hasChildren = item.children && item.children.length > 0;
-      const isExpanded = contentExpandedItems.has(item.id);
       const isHighlighted = selectedItem === item.id;
       const isHovered = hoveredItem === item.id;
-      const typeStyles = getTypeStyles(item.content_type);
+      const typeStyles = getTypeStyles(contentType);
 
       const showHighlight =
         isHighlighted &&
         ["division", "part", "section", "subsection", "article"].includes(
-          item.content_type
+          contentType
         );
+
+      if (isLargeContent) {
+        return (
+          <div key={item.id} className="py-4 px-2 bg-blue-50">
+            <div
+              ref={(el) => {
+                contentRefs.current[item.id] = el;
+              }}
+              className="p-2 rounded-lg mb-6"
+            >
+              {(item.reference_code || item.title || item.content_text) && (
+                <div className="flex flex-wrap items-center gap-3 mb-2">
+                  {item.reference_code && (
+                    <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-md text-sm font-mono">
+                      {item.reference_code}
+                    </span>
+                  )}
+                  {item.title && (
+                    <h1 className={`text-3xl text-gray-500`}>
+                      {searchTerm
+                        ? highlightText(item.title, searchTerm)
+                        : item.title}
+                    </h1>
+                  )}
+                  {item.content_text && item.content_text !== item.title && (
+                    <p className={`text-3xl text-gray-500`}>
+                      {searchTerm
+                        ? highlightText(item.content_text, searchTerm)
+                        : highlightReferences(
+                            item.content_text,
+                            item.references || []
+                          )}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {hasChildren && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {item.children!.map((child) => (
+                  <div
+                    key={child.id}
+                    ref={(el) => {
+                      contentRefs.current[child.id] = el;
+                    }}
+                    className={`p-4 rounded-lg cursor-pointer transition-all
+                ${
+                  selectedItem === child.id
+                    ? "shadow-md shadow-black/20 bg-white"
+                    : "bg-white"
+                }
+                hover:shadow-md hover:shadow-black/10
+              `}
+                    onMouseEnter={() => setHoveredItem(child.id)}
+                    onMouseLeave={() => setHoveredItem(null)}
+                    onClick={() => handleGridItemClick(child)}
+                  >
+                    <div className="flex flex-col h-full">
+                      <div className="flex items-start gap-2 mb-2">
+                        {child.reference_code && (
+                          <span className="font-mono text-sm font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                            {child.reference_code}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-base text-gray-900 mb-2">
+                          {(child.title ? child.title + " " : "") +
+                            (child.content_text || "")}
+                        </h3>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
 
       if (item.content_type === "article") {
         return (
@@ -844,7 +948,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                     if (child.content_type === "see_also") {
                       return renderSeeAlsoContent(child);
                     }
-                    // Pass the parent item (article) to renderArticleChild
                     return renderArticleChild(child, 0, item);
                   })}
                 </div>
@@ -898,7 +1001,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               </div>
             )}
 
-            {/* Render see_also children directly under the content */}
             {hasChildren &&
               item.children!.some(
                 (child) => child.content_type === "see_also"
@@ -931,18 +1033,16 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       highlightText,
       highlightReferences,
       renderSeeAlsoContent,
+      handleNavigationClick,
     ]
   );
 
-  // Update the renderClauseContent function to handle definitions within clauses
   const renderClauseContent = useCallback(
     (item: HierarchyNode, level: number = 0) => {
-      // Handle see_also items
       if (item.content_type === "see_also") {
         return renderSeeAlsoContent(item);
       }
 
-      // Handle definition items within clauses
       if (item.content_type === "definition") {
         return renderDefinition(item, level);
       }
@@ -972,7 +1072,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               setSelectedItem(item.id);
             }}
           >
-            {/* Reference code and title in one line */}
             <div className="flex items-start gap-1 text-sm">
               <span className="font-medium text-black shrink-0">
                 {item.reference_code}
@@ -985,7 +1084,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               </span>
             </div>
 
-            {/* Render see_also children */}
             {hasChildren &&
               item.children!.some(
                 (child) => child.content_type === "see_also"
@@ -999,7 +1097,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                 </div>
               )}
 
-            {/* Render subclauses and definitions */}
             {hasChildren && (
               <div className="ml-4 mt-1 space-y-2">
                 {item
@@ -1039,7 +1136,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               setSelectedItem(item.id);
             }}
           >
-            {/* For subclauses, you might want similar treatment */}
             <div className="flex items-start gap-1">
               {item.reference_code && (
                 <span className="font-medium text-gray-800 shrink-0">
@@ -1057,7 +1153,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               </span>
             </div>
 
-            {/* Render see_also children */}
             {hasChildren &&
               item.children!.some(
                 (child) => child.content_type === "see_also"
@@ -1087,43 +1182,25 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     ]
   );
 
-  // Helper function to render clauses and subclauses within a sentence
-  // Helper function to render clauses and subclauses within a sentence
   const renderArticleChild = useCallback(
     (item: HierarchyNode, level: number = 0, parentItem?: HierarchyNode) => {
-      // Handle definition items within articles
-      console.log("renderArticleChild:", {
-        itemId: item.id,
-        itemType: item.content_type,
-        itemText: item.content_text?.substring(0, 50),
-        parentItemId: parentItem?.id,
-        parentItemType: parentItem?.content_type,
-        parentItemTitle: parentItem?.title,
-        isDefinedTerms:
-          parentItem &&
-          parentItem.content_type === "article" &&
-          (parentItem.title?.toLowerCase().includes("defined terms") ||
-            parentItem.content_text?.toLowerCase().includes("defined terms")),
-      });
+      const hasChildren = item.children && item.children.length > 0;
+
       if (item.content_type === "definition") {
         return renderDefinition(item, level);
       }
 
-      // Handle see_also items
       if (item.content_type === "see_also") {
         return renderSeeAlsoContent(item);
       }
 
-      // Check if this is a "Defined Terms" section
       const isDefinedTermsSection =
         parentItem &&
         parentItem.content_type === "article" &&
         (parentItem.title?.toLowerCase().includes("defined terms") ||
           parentItem.content_text?.toLowerCase().includes("defined terms"));
 
-      // For sentences in "Defined Terms" sections, render both the sentence AND its definitions
       if (item.content_type === "sentence" && isDefinedTermsSection) {
-        const hasChildren = item.children && item.children.length > 0;
         const isHighlighted = selectedItem === item.id;
         const isHovered = hoveredItem === item.id;
 
@@ -1144,14 +1221,11 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             onMouseLeave={() => setHoveredItem(null)}
             onClick={() => setSelectedItem(item.id)}
           >
-            {/* Render the sentence content */}
             {(item.reference_code || item.content_text) && (
               <div className="text-gray-700 leading-relaxed mb-3">
                 <div className="flex flex-wrap items-start gap-2">
-                  {/* Reference Code */}
                   {item.reference_code && <span>{item.reference_code}</span>}
 
-                  {/* Sentence Text */}
                   {item.content_text && (
                     <span className="break-words flex-1">
                       {searchTerm
@@ -1166,7 +1240,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               </div>
             )}
 
-            {/* Render definitions as children of this sentence */}
             {hasChildren && (
               <div className="space-y-4">
                 {item.children!.map((child) => {
@@ -1181,9 +1254,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         );
       }
 
-      // Regular sentence rendering for non-Defined Terms sections
       if (item.content_type === "sentence") {
-        const hasChildren = item.children && item.children.length > 0;
         const isHighlighted = selectedItem === item.id;
         const isHovered = hoveredItem === item.id;
 
@@ -1206,16 +1277,13 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           >
             <div className="flex items-start gap-2">
               <div className="flex-1">
-                {/* Sentence content with reference highlights */}
                 {(item.reference_code || item.content_text) && (
                   <div className="text-gray-700 leading-relaxed">
                     <div className="flex flex-wrap items-start gap-2">
-                      {/* Reference Code */}
                       {item.reference_code && (
                         <span>{item.reference_code}</span>
                       )}
 
-                      {/* Sentence Text */}
                       {item.content_text && (
                         <span className="break-words flex-1">
                           {searchTerm
@@ -1230,7 +1298,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                   </div>
                 )}
 
-                {/* Render see_also children */}
                 {hasChildren &&
                   item.children!.some(
                     (child) => child.content_type === "see_also"
@@ -1244,15 +1311,12 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                     </div>
                   )}
 
-                {/* Render all children including definitions, clauses and subclauses */}
                 {hasChildren && (
                   <div className="mt-2 space-y-3">
                     {item.children!.map((child) => {
-                      // Handle definitions within sentences
                       if (child.content_type === "definition") {
                         return renderDefinition(child);
                       }
-                      // Handle clauses and subclauses
                       if (
                         child.content_type === "clause" ||
                         child.content_type === "subclause"
@@ -1269,7 +1333,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         );
       }
 
-      // Default case for non-sentence children
       return (
         <div
           key={item.id}
@@ -1287,7 +1350,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             </div>
           )}
 
-          {/* Render see_also children */}
           {hasChildren &&
             item.children!.some(
               (child) => child.content_type === "see_also"
@@ -1313,6 +1375,40 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       renderDefinition,
       renderClauseContent,
     ]
+  );
+
+  // Mobile navigation overlay
+  const MobileNavOverlay = () => (
+    <>
+      {showMobileNav && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
+          onClick={() => setShowMobileNav(false)}
+        />
+      )}
+      <div
+        className={`
+        fixed top-0 left-0 h-full bg-white shadow-lg z-50 transform transition-transform duration-300 ease-in-out
+        ${showMobileNav ? "translate-x-0" : "-translate-x-full"}
+        w-80 md:hidden
+      `}
+      >
+        <div className="bg-gradient-to-r from-gray-50 to-white px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+          <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
+            Navigation
+          </h2>
+          <button
+            onClick={() => setShowMobileNav(false)}
+            className="p-1 rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="overflow-y-auto h-full p-2">
+          {navigationData.map((item) => renderNavigationItem(item))}
+        </div>
+      </div>
+    </>
   );
 
   if (loading) {
@@ -1347,14 +1443,25 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Mobile Navigation Overlay */}
+      <MobileNavOverlay />
+
       {/* Header */}
       <header className="bg-white border-b border-gray-200 shadow-sm flex-shrink-0">
-        <div className="max-w-[1800px] mx-auto px-8 py-2">
+        <div className="max-w-[1800px] mx-auto px-4 md:px-8 py-2">
           <div className="flex items-center justify-between">
-            {/* Left side - Document info */}
+            {/* Left side - Document info and mobile menu */}
             <div className="flex items-center flex-1 min-w-0">
+              {/* Mobile menu button */}
+              <button
+                onClick={() => setShowMobileNav(true)}
+                className="md:hidden mr-3 p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <Menu size={20} />
+              </button>
+
               <div className="min-w-0 flex-1">
-                <h1 className="text-xl font-bold text-gray-900 tracking-tight truncate">
+                <h1 className="text-lg md:text-xl font-bold text-gray-900 tracking-tight truncate">
                   {documentInfo?.title || "British Columbia Building Code 2024"}
                 </h1>
               </div>
@@ -1364,13 +1471,13 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             <div className="flex-1 max-w-2xl">
               <div className="relative">
                 <Search
-                  className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400"
-                  size={20}
+                  className="absolute left-3 md:left-4 top-1/2 transform -translate-y-1/2 text-gray-400"
+                  size={18}
                 />
                 <input
                   type="text"
                   placeholder="Search by title, content, or reference code..."
-                  className="w-full pl-12 pr-12 py-3 border text-black border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white shadow-sm transition-all"
+                  className="w-full pl-10 md:pl-12 pr-10 md:pr-12 py-2 md:py-3 border text-black border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white shadow-sm transition-all"
                   value={searchTerm}
                   onChange={(e) => handleSearch(e.target.value)}
                 />
@@ -1381,9 +1488,9 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                       setSearchTerm("");
                       setSearchResults([]);
                     }}
-                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    className="absolute right-3 md:right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
                   >
-                    <X size={18} />
+                    <X size={16} />
                   </button>
                 )}
               </div>
@@ -1394,20 +1501,33 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
       {/* Main Content Area */}
       <div
-        className={`flex-1 flex overflow-hidden max-w-[1800px] mx-auto w-full px-6 py-2 gap-6`}
+        className={`flex-1 flex overflow-hidden max-w-[1800px] mx-auto w-full px-3 md:px-6 py-2 gap-4 md:gap-6`}
       >
         {/* Search Results Column - Only shown in search mode */}
         {isSearchMode && (
-          <aside className="w-1/4 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-shrink-0">
-            <div className="bg-gradient-to-r from-blue-50 to-blue-100 px-5 py-4 border-b border-blue-200">
-              <h2 className="text-sm font-bold text-blue-700 uppercase tracking-wider flex items-center gap-2">
-                <Search size={16} />
-                Search Results
-                <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full ml-1">
-                  {searchResults.length}
-                </span>
-              </h2>
-            </div>
+          <aside
+            className={`
+            bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-shrink-0
+            ${isMobile ? "fixed inset-4 z-40" : "w-1/4"}
+          `}
+          >
+            {isMobile && (
+              <div className="bg-gradient-to-r from-blue-50 to-blue-100 px-5 py-4 border-b border-blue-200 flex items-center justify-between">
+                <h2 className="text-sm font-bold text-blue-700 uppercase tracking-wider flex items-center gap-2">
+                  <Search size={16} />
+                  Search Results
+                  <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full ml-1">
+                    {searchResults.length}
+                  </span>
+                </h2>
+                <button
+                  onClick={() => setSearchTerm("")}
+                  className="p-1 rounded-lg hover:bg-blue-200 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            )}
             <div className="overflow-y-auto h-full p-2">
               {searchResults.map((result) => (
                 <div
@@ -1449,8 +1569,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           </aside>
         )}
 
-        {/* Navigation Sidebar - Hidden in search mode */}
-        {!isSearchMode && (
+        {/* Navigation Sidebar - Hidden in search mode and mobile */}
+        {!isSearchMode && !isMobile && (
           <aside className="w-1/4 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-shrink-0">
             <div className="bg-gradient-to-r from-gray-50 to-white px-5 py-4 border-b border-gray-200">
               <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
@@ -1465,13 +1585,16 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
         {/* Content Area */}
         <main
-          className={`bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden ${
-            isSearchMode ? "flex-1" : "w-3/4"
-          }`}
+          className={`
+            bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden 
+            ${isSearchMode ? "flex-1" : isMobile ? "w-full" : "w-3/4"}
+          `}
         >
           <div ref={contentContainerRef} className="h-full overflow-y-auto">
             <div
-              className={`px-8 py-6 ${isSearchMode ? "max-w-4xl mx-auto" : ""}`}
+              className={`px-4 md:px-8 py-4 md:py-6 ${
+                isSearchMode ? "max-w-4xl mx-auto" : ""
+              }`}
             >
               {contentLoading && (
                 <div className="flex justify-center py-4">
