@@ -67,6 +67,10 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     isOpen: false,
     reference: null,
   });
+
+  const [activeChildParent, setActiveChildParent] = useState<number | null>(
+    null
+  );
   const searchTimeoutRef = useRef<NodeJS.Timeout>();
 
   const params = useSearchParams();
@@ -801,7 +805,33 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     },
     [loadContentForItem, scrollToElement]
   );
+  const [hoveredParent, setHoveredParent] = useState(null);
+  // Add this function to find parent article
+  const findParentArticle = useCallback(
+    (item: HierarchyNode): HierarchyNode | null => {
+      const findArticleInHierarchy = (
+        node: HierarchyNode
+      ): HierarchyNode | null => {
+        if (!node) return null;
 
+        // If this node is an article, return it
+        if (node.content_type === "article") return node;
+
+        // If we have parent_id, try to find the parent in navigation data
+        if (node.parent_id) {
+          const parent = findItemInNavigation(navigationData, node.parent_id);
+          if (parent) {
+            return findArticleInHierarchy(parent);
+          }
+        }
+
+        return null;
+      };
+
+      return findArticleInHierarchy(item);
+    },
+    [navigationData, findItemInNavigation]
+  );
   // Content item renderer
   const renderContentItem = useCallback(
     (item: HierarchyNode, level: number = 0) => {
@@ -908,6 +938,10 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       }
 
       if (item.content_type === "article") {
+        const isHighlighted = selectedItem === item.id;
+        const isHovered = hoveredItem === item.id;
+        const isParentHovered = hoveredParent === item.id; // Check if this article is the hovered parent
+
         return (
           <div key={item.id} className="mb-6">
             <div
@@ -917,9 +951,9 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               className={`p-4 rounded-lg ${
                 showHighlight
                   ? "bg-blue-50 border-blue-300 shadow-sm"
-                  : isHovered
+                  : isHovered || isParentHovered // Apply hover style if either the article itself is hovered OR it's the parent of a hovered sentence
                   ? "bg-gray-200 border-gray-300 shadow-sm"
-                  : "bg-white"
+                  : ""
               }`}
               onMouseEnter={() => setHoveredItem(item.id)}
               onMouseLeave={() => setHoveredItem(null)}
@@ -968,7 +1002,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                 ? "bg-blue-50 border-blue-300 shadow-sm"
                 : isHovered
                 ? "bg-gray-200 border-gray-300 shadow-sm"
-                : "bg-white"
+                : ""
             }`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
@@ -1058,13 +1092,16 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             ref={(el) => {
               contentRefs.current[item.id] = el;
             }}
-            className={`ml-4 p-2 rounded ${
-              isHighlighted
-                ? "bg-blue-50"
-                : isHovered
-                ? "bg-gray-100 border border-black"
-                : ""
-            }`}
+            className={`ml-4 p-2 rounded transition-all 
+${
+  activeChildParent === item.id
+    ? "bg-gray-100 border border-black border-l-4 border-l-black"
+    : isHighlighted
+    ? "bg-blue-50 border border-blue-300 border-l-4 border-l-blue-600"
+    : isHovered
+    ? "bg-gray-100 border border-black border-l-4 border-l-blue-500"
+    : ""
+}`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
             onClick={(e) => {
@@ -1122,15 +1159,21 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             ref={(el) => {
               contentRefs.current[item.id] = el;
             }}
-            className={`ml-4 p-1 rounded transition-colors ${
+            className={`ml-4 p-1 rounded  ${
               isHighlighted
                 ? "bg-blue-50"
                 : isHovered
-                ? "bg-gray-100 border border-black"
+                ? "bg-gray-100 border border-black border-l-4 border-l-blue-500"
                 : ""
             }`}
-            onMouseEnter={() => setHoveredItem(item.id)}
-            onMouseLeave={() => setHoveredItem(null)}
+            onMouseEnter={() => {
+              setHoveredItem(item.id);
+              setActiveChildParent(item.parent_id);
+            }}
+            onMouseLeave={() => {
+              setHoveredItem(null);
+              setActiveChildParent(null);
+            }}
             onClick={(e) => {
               e.stopPropagation();
               setSelectedItem(item.id);
@@ -1210,13 +1253,20 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             ref={(el) => {
               contentRefs.current[item.id] = el;
             }}
-            className={`p-3 rounded ${
-              isHighlighted
-                ? "bg-blue-50 border-blue-300 shadow-sm"
-                : isHovered
-                ? "bg-gray-200 border-gray-300"
-                : "bg-white"
-            }`}
+            className={`p-3 rounded border  
+  ${
+    activeChildParent === item.id
+      ? // CHILD HOVER → keep normal hover style but override left border
+        "bg-gray-200 border-gray-300 border-l-4 border-l-black"
+      : isHighlighted
+      ? // SELECTED
+        "bg-blue-50 border-blue-300 border-l-4 shadow-sm"
+      : isHovered
+      ? // NORMAL HOVER
+        "bg-gray-200 border-gray-300 border-l-4 border-l-blue-500"
+      : // DEFAULT
+        "border-transparent"
+  }`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
             onClick={() => setSelectedItem(item.id)}
@@ -1258,23 +1308,38 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         const isHighlighted = selectedItem === item.id;
         const isHovered = hoveredItem === item.id;
 
+        // Find the parent article
+        const parentArticle = findParentArticle(item);
+
         return (
           <div
             key={item.id}
             ref={(el) => {
               contentRefs.current[item.id] = el;
             }}
-            className={`p-3 rounded ${
-              isHighlighted
-                ? "bg-blue-50 border-blue-300 shadow-sm"
-                : isHovered
-                ? "bg-gray-200 border-gray-300"
-                : "bg-white"
-            }`}
-            onMouseEnter={() => setHoveredItem(item.id)}
-            onMouseLeave={() => setHoveredItem(null)}
+            className={`p-3 rounded border  
+        ${
+          activeChildParent === item.id
+            ? "bg-gray-200 border-gray-700 border-l-4 border-l-black"
+            : isHighlighted
+            ? "bg-blue-50 border-blue-300 border-l-4 shadow-sm"
+            : isHovered
+            ? "bg-gray-200 border-gray-700 border-l-4 border-l-blue-500"
+            : "border-transparent"
+        }`}
+            onMouseEnter={() => {
+              setHoveredItem(item.id);
+              if (parentArticle) {
+                setHoveredParent(parentArticle.id);
+              }
+            }}
+            onMouseLeave={() => {
+              setHoveredItem(null);
+              setHoveredParent(null);
+            }}
             onClick={() => setSelectedItem(item.id)}
           >
+            {/* ... rest of your sentence content remains the same */}
             <div className="flex items-start gap-2">
               <div className="flex-1">
                 {(item.reference_code || item.content_text) && (
@@ -1317,12 +1382,22 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                       if (child.content_type === "definition") {
                         return renderDefinition(child);
                       }
+
                       if (
                         child.content_type === "clause" ||
                         child.content_type === "subclause"
                       ) {
-                        return renderClauseContent(child);
+                        return (
+                          <div
+                            key={child.id}
+                            onMouseEnter={() => setActiveChildParent(item.id)}
+                            onMouseLeave={() => setActiveChildParent(null)}
+                          >
+                            {renderClauseContent(child)}
+                          </div>
+                        );
                       }
+
                       return null;
                     })}
                   </div>

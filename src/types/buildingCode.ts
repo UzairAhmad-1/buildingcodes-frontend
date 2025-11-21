@@ -39,6 +39,10 @@ export interface Reference {
   } | null;
 }
 
+export interface Metadata {
+  isLargeContent?: boolean;
+}
+
 export interface BuildingCodeItem {
   id: number;
   parent_id: number | null;
@@ -60,6 +64,7 @@ export interface BuildingCodeItem {
   references: Reference[];
   level?: number;
   path?: number[];
+  metadata?: Metadata;
 }
 
 export interface HierarchyNode extends BuildingCodeItem {
