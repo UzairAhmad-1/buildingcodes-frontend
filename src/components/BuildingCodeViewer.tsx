@@ -122,8 +122,12 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   // Find parent content ID based on item type
   const findParentContentId = useCallback(
     (item: HierarchyNode): number => {
-      // For division, part, section - load the item itself
-      if (["division", "part", "section"].includes(item.content_type)) {
+      // For division, part, section, note_section - load the item itself
+      if (
+        ["division", "part", "section", "note_section"].includes(
+          item.content_type
+        )
+      ) {
         return item.id;
       }
 
@@ -132,7 +136,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       while (current) {
         if (
           current.content_type === "part" ||
-          current.content_type === "section"
+          current.content_type === "section" ||
+          current.content_type === "note_section"
         ) {
           return current.id;
         }
@@ -624,12 +629,40 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     return styles[type] || { text: "text-xs text-black font-normal" };
   };
 
-  // Navigation item renderer
   const renderNavigationItem = useCallback(
     (item: HierarchyNode, level: number = 0) => {
       const hasChildren = item.children && item.children.length > 0;
       const isExpanded = navigationExpandedItems.has(item.id);
       const isSelected = selectedItem === item.id;
+
+      // Format the display text to show both reference code and content text
+      const getDisplayText = (node: HierarchyNode): string => {
+        const parts = [];
+
+        // Always include reference code if it exists
+        if (node.reference_code) {
+          parts.push(node.reference_code);
+        }
+
+        // Include content text if it exists and is different from reference code
+        if (node.content_text && node.content_text !== node.reference_code) {
+          // For longer content text, truncate it
+          const contentText =
+            node.content_text.length > 80
+              ? node.content_text.substring(0, 80) + "..."
+              : node.content_text;
+          parts.push(contentText);
+        }
+
+        // Fallback to title if no content text (shouldn't happen with our new import)
+        if (parts.length === 0 && node.title) {
+          parts.push(node.title);
+        }
+
+        return parts.join("  ");
+      };
+
+      const displayText = getDisplayText(item);
 
       return (
         <div key={item.id}>
@@ -660,11 +693,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
             <div className="flex-1 min-w-0">
               <div className="text-sm truncate">
-                {item.reference_code && (
-                  <span className="font-mono text-xs text-gray-500 mr-2">
-                    {item.reference_code}
-                  </span>
-                )}
                 <span
                   className={
                     level === 0
@@ -672,13 +700,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                       : "text-gray-700"
                   }
                 >
-                  {[
-                    item.reference_code,
-                    item.title,
-                    item.content_text && item.content_text.substring(0, 80),
-                  ]
-                    .filter(Boolean)
-                    .join(" – ")}
+                  {displayText}
                 </span>
               </div>
             </div>
@@ -701,7 +723,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       toggleNavigationExpand,
     ]
   );
-
   const renderDefinition = useCallback(
     (definition: HierarchyNode, level: number = 0) => {
       const hasChildren = definition.children && definition.children.length > 0;
@@ -718,11 +739,11 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           onClick={() => setSelectedItem(definition.id)}
         >
           <div className="text-sm text-black leading-relaxed">
-            {definition.title && (
+            {definition.definition_term && (
               <span className="italic text-black">
                 {searchTerm
-                  ? highlightText(definition.title, searchTerm)
-                  : definition.title}
+                  ? highlightText(definition.definition_term, searchTerm)
+                  : definition.definition_term}
               </span>
             )}
 
@@ -747,16 +768,16 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                       key={child.id}
                       className="text-sm text-black leading-relaxed hover:bg-gray-100 hover:border hover:border-black"
                     >
-                      {child.title && (
+                      {child.content_text && (
                         <div className="flex items-start gap-1">
                           <span className="font-medium">
                             {child.reference_code}
                           </span>
                           <span>
                             {searchTerm
-                              ? highlightText(child.title, searchTerm)
+                              ? highlightText(child.content_text, searchTerm)
                               : highlightReferences(
-                                  child.title,
+                                  child.content_text,
                                   child.references || []
                                 )}
                           </span>
@@ -832,243 +853,107 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     },
     [navigationData, findItemInNavigation]
   );
-  // Content item renderer
-  const renderContentItem = useCallback(
+
+  const renderNoteContent = useCallback(
     (item: HierarchyNode, level: number = 0) => {
-      if (item.content_type === "see_also") {
-        return (
-          <div key={item.id} className="mb-2">
-            {renderSeeAlsoContent(item)}
-          </div>
-        );
-      }
-
-      const isLargeContent = item.metadata?.isLargeContent;
-      const contentType = item.content_type;
-
-      const hasChildren = item.children && item.children.length > 0;
       const isHighlighted = selectedItem === item.id;
       const isHovered = hoveredItem === item.id;
-      const typeStyles = getTypeStyles(contentType);
 
-      const showHighlight =
-        isHighlighted &&
-        ["division", "part", "section", "subsection", "article"].includes(
-          contentType
-        );
-
-      if (isLargeContent) {
-        return (
-          <div key={item.id} className="py-4 px-2 bg-blue-50">
-            <div
-              ref={(el) => {
-                contentRefs.current[item.id] = el;
-              }}
-              className="p-2 rounded-lg mb-6"
-            >
-              {(item.reference_code || item.title || item.content_text) && (
-                <div className="flex flex-wrap items-center gap-3 mb-2">
-                  {item.reference_code && (
-                    <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-md text-sm font-mono">
-                      {item.reference_code}
-                    </span>
-                  )}
-                  {item.title && (
-                    <h1 className={`text-3xl text-gray-500`}>
-                      {searchTerm
-                        ? highlightText(item.title, searchTerm)
-                        : item.title}
-                    </h1>
-                  )}
-                  {item.content_text && item.content_text !== item.title && (
-                    <p className={`text-3xl text-gray-500`}>
-                      {searchTerm
-                        ? highlightText(item.content_text, searchTerm)
-                        : highlightReferences(
-                            item.content_text,
-                            item.references || []
-                          )}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {hasChildren && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {item.children!.map((child) => (
-                  <div
-                    key={child.id}
-                    ref={(el) => {
-                      contentRefs.current[child.id] = el;
-                    }}
-                    className={`p-4 rounded-lg cursor-pointer transition-all
-                ${
-                  selectedItem === child.id
-                    ? "shadow-md shadow-black/20 bg-white"
-                    : "bg-white"
-                }
-                hover:shadow-md hover:shadow-black/10
-              `}
-                    onMouseEnter={() => setHoveredItem(child.id)}
-                    onMouseLeave={() => setHoveredItem(null)}
-                    onClick={() => handleGridItemClick(child)}
-                  >
-                    <div className="flex flex-col h-full">
-                      <div className="flex items-start gap-2 mb-2">
-                        {child.reference_code && (
-                          <span className="font-mono text-sm font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded">
-                            {child.reference_code}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="text-base text-gray-900 mb-2">
-                          {(child.title ? child.title + " " : "") +
-                            (child.content_text || "")}
-                        </h3>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      }
-
-      if (item.content_type === "article") {
-        const isHighlighted = selectedItem === item.id;
-        const isHovered = hoveredItem === item.id;
-        const isParentHovered = hoveredParent === item.id; // Check if this article is the hovered parent
+      if (item.content_type === "note_item") {
+        const hasChildren = item.children && item.children.length > 0;
 
         return (
-          <div key={item.id} className="mb-6">
-            <div
-              ref={(el) => {
-                contentRefs.current[item.id] = el;
-              }}
-              className={`p-4 rounded-lg ${
-                showHighlight
-                  ? "bg-blue-50 border-blue-300 shadow-sm"
-                  : isHovered || isParentHovered // Apply hover style if either the article itself is hovered OR it's the parent of a hovered sentence
-                  ? "bg-gray-200 border-gray-300 shadow-sm"
-                  : ""
-              }`}
-              onMouseEnter={() => setHoveredItem(item.id)}
-              onMouseLeave={() => setHoveredItem(null)}
-              onClick={() => setSelectedItem(item.id)}
-            >
-              {(item.reference_code || item.title) && (
-                <div className="flex flex-wrap items-center gap-2 mb-3">
-                  {item.reference_code && (
-                    <span className="px-2 py-1 rounded transition-colors">
-                      {item.reference_code}
-                    </span>
-                  )}
-                  {item.title && (
-                    <h3 className={`${typeStyles.text}`}>
-                      {searchTerm
-                        ? highlightText(item.title, searchTerm)
-                        : item.title}
-                    </h3>
-                  )}
-                </div>
-              )}
-
-              {hasChildren && (
-                <div className="space-y-3">
-                  {item.children!.map((child) => {
-                    if (child.content_type === "see_also") {
-                      return renderSeeAlsoContent(child);
-                    }
-                    return renderArticleChild(child, 0, item);
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      }
-
-      return (
-        <div key={item.id} className="mb-6">
           <div
+            key={item.id}
             ref={(el) => {
               contentRefs.current[item.id] = el;
             }}
             className={`p-4 rounded-lg ${
-              showHighlight
-                ? "bg-blue-50 border-blue-300 shadow-sm"
+              isHighlighted
+                ? "bg-blue-50"
                 : isHovered
-                ? "bg-gray-200 border-gray-300 shadow-sm"
-                : ""
+                ? "bg-gray-200"
+                : "bg-white"
             }`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
             onClick={() => setSelectedItem(item.id)}
           >
-            {(item.reference_code || item.title || item.content_text) && (
-              <div className="flex flex-wrap items-center gap-2 mb-3">
-                {item.reference_code && (
-                  <span className="px-2 py-1 rounded transition-colors">
-                    {item.reference_code}
-                  </span>
-                )}
-                {item.title && (
-                  <h3 className={`${typeStyles.text}`}>
-                    {searchTerm
-                      ? highlightText(item.title, searchTerm)
-                      : item.title}
-                  </h3>
-                )}
-                {item.content_text && item.content_text !== item.title && (
-                  <span className={`${typeStyles.text}`}>
-                    {searchTerm
-                      ? highlightText(item.content_text, searchTerm)
-                      : highlightReferences(
-                          item.content_text,
-                          item.references || []
-                        )}
-                  </span>
+            <div className="flex items-start gap-2 mb-2">
+              {item.reference_code && (
+                <span className="font-medium shrink-0">
+                  {item.reference_code}
+                </span>
+              )}
+              {item.content_text && (
+                <span className="text-gray-800 font-medium">
+                  {searchTerm
+                    ? highlightText(item.content_text, searchTerm)
+                    : item.content_text}
+                </span>
+              )}
+            </div>
+
+            {hasChildren && (
+              <div className="space-y-2">
+                {item.children!.map((child) =>
+                  // Remove hover/click handlers from note_content since parent handles it
+                  child.content_type === "note_content" ? (
+                    <div
+                      key={child.id}
+                      ref={(el) => {
+                        contentRefs.current[child.id] = el;
+                      }}
+                      className="text-gray-700 leading-relaxed p-2 rounded"
+                    >
+                      {child.content_text && (
+                        <div className="break-words">
+                          {searchTerm
+                            ? highlightText(child.content_text, searchTerm)
+                            : highlightReferences(
+                                child.content_text,
+                                child.references || []
+                              )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    renderNoteContent(child, level + 1)
+                  )
                 )}
               </div>
             )}
-
-            {hasChildren &&
-              item.children!.some(
-                (child) => child.content_type === "see_also"
-              ) && (
-                <div className="mt-2">
-                  {item
-                    .children!.filter(
-                      (child) => child.content_type === "see_also"
-                    )
-                    .map((child) => renderSeeAlsoContent(child))}
-                </div>
-              )}
           </div>
+        );
+      }
 
-          {hasChildren && item.content_type !== "article" && (
-            <div className="ml-4">
-              {item
-                .children!.filter((child) => child.content_type !== "see_also")
-                .map((child) => renderContentItem(child, level + 1))}
-            </div>
-          )}
-        </div>
-      );
+      // Handle other note types that might be direct children of note_section
+      if (item.content_type === "note_content") {
+        return (
+          <div
+            key={item.id}
+            ref={(el) => {
+              contentRefs.current[item.id] = el;
+            }}
+            className="text-gray-700 leading-relaxed p-2 rounded"
+          >
+            {item.content_text && (
+              <div className="break-words">
+                {searchTerm
+                  ? highlightText(item.content_text, searchTerm)
+                  : highlightReferences(
+                      item.content_text,
+                      item.references || []
+                    )}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      return null;
     },
-    [
-      contentExpandedItems,
-      selectedItem,
-      hoveredItem,
-      searchTerm,
-      highlightText,
-      highlightReferences,
-      renderSeeAlsoContent,
-      handleNavigationClick,
-    ]
+    [selectedItem, hoveredItem, searchTerm, highlightText, highlightReferences]
   );
 
   const renderClauseContent = useCallback(
@@ -1092,7 +977,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             ref={(el) => {
               contentRefs.current[item.id] = el;
             }}
-            className={`ml-4 p-2 rounded transition-all 
+            className={`ml-2 p-2 rounded transition-all 
 ${
   activeChildParent === item.id
     ? "bg-gray-100 border border-black border-l-4 border-l-black"
@@ -1114,10 +999,13 @@ ${
                 {item.reference_code}
               </span>
               <span className="text-black leading-relaxed">
-                {item.title &&
+                {item.content_text &&
                   (searchTerm
-                    ? highlightText(item.title, searchTerm)
-                    : highlightReferences(item.title, item.references || []))}
+                    ? highlightText(item.content_text, searchTerm)
+                    : highlightReferences(
+                        item.content_text,
+                        item.references || []
+                      ))}
               </span>
             </div>
 
@@ -1135,7 +1023,7 @@ ${
               )}
 
             {hasChildren && (
-              <div className="ml-4 mt-1 space-y-2">
+              <div className="ml-2 mt-1 space-y-2">
                 {item
                   .children!.filter(
                     (child) => child.content_type !== "see_also"
@@ -1159,7 +1047,7 @@ ${
             ref={(el) => {
               contentRefs.current[item.id] = el;
             }}
-            className={`ml-4 p-1 rounded  ${
+            className={`ml-2 p-1 rounded  ${
               isHighlighted
                 ? "bg-blue-50"
                 : isHovered
@@ -1233,6 +1121,9 @@ ${
         return renderDefinition(item, level);
       }
 
+      if (["note_item", "note_content"].includes(item.content_type)) {
+        return renderNoteContent(item, level);
+      }
       if (item.content_type === "see_also") {
         return renderSeeAlsoContent(item);
       }
@@ -1339,7 +1230,6 @@ ${
             }}
             onClick={() => setSelectedItem(item.id)}
           >
-            {/* ... rest of your sentence content remains the same */}
             <div className="flex items-start gap-2">
               <div className="flex-1">
                 {(item.reference_code || item.content_text) && (
@@ -1447,8 +1337,344 @@ ${
       highlightText,
       highlightReferences,
       renderSeeAlsoContent,
+      renderNoteContent, // Keep this for note_item and note_content
       renderDefinition,
       renderClauseContent,
+    ]
+  );
+  // Content item renderer
+  const renderContentItem = useCallback(
+    (item: HierarchyNode, level: number = 0) => {
+      if (item.content_type === "see_also") {
+        return (
+          <div key={item.id} className="mb-2">
+            {renderSeeAlsoContent(item)}
+          </div>
+        );
+      }
+      if (item.content_type === "note_section") {
+        const hasChildren = item.children && item.children.length > 0;
+        const isHighlighted = selectedItem === item.id;
+        const isHovered = hoveredItem === item.id;
+        const typeStyles = getTypeStyles("section"); // Use section styles for note_section
+
+        const showHighlight = isHighlighted;
+
+        return (
+          <div key={item.id} className="mb-6">
+            {/* Note Section Header - separate block like section */}
+            <div
+              ref={(el) => {
+                contentRefs.current[item.id] = el;
+              }}
+              className={`p-4 rounded-lg mb-4 ${
+                showHighlight
+                  ? "bg-blue-50 border-blue-300 shadow-sm"
+                  : isHovered
+                  ? "bg-gray-200 border-gray-300 shadow-sm"
+                  : ""
+              }`}
+              onMouseEnter={() => setHoveredItem(item.id)}
+              onMouseLeave={() => setHoveredItem(null)}
+              onClick={() => setSelectedItem(item.id)}
+            >
+              <div className="flex items-center gap-2">
+                {item.reference_code && (
+                  <span className="text-lg font-medium">
+                    {item.reference_code}
+                  </span>
+                )}
+                {item.content_text && (
+                  <h3 className={`${typeStyles.text}`}>
+                    {searchTerm
+                      ? highlightText(item.content_text, searchTerm)
+                      : item.content_text}
+                  </h3>
+                )}
+              </div>
+            </div>
+
+            {/* Note Section Children - separate from the header */}
+            {hasChildren && (
+              <div className="space-y-4">
+                {item.children!.map((child) => {
+                  // For note_item and note_content, use the note renderer
+                  if (
+                    ["note_item", "note_content"].includes(child.content_type)
+                  ) {
+                    return renderNoteContent(child, level + 1);
+                  }
+                  // For other types, use regular content rendering
+                  return renderContentItem(child, level + 1);
+                })}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // Handle note_item and note_content separately
+      if (["note_item", "note_content"].includes(item.content_type)) {
+        return renderNoteContent(item, level);
+      }
+
+      // Add paragraph handling here
+      if (item.content_type === "paragraph") {
+        const isHighlighted = selectedItem === item.id;
+        const isHovered = hoveredItem === item.id;
+
+        return (
+          <div
+            key={item.id}
+            ref={(el) => {
+              contentRefs.current[item.id] = el;
+            }}
+            className={`p-2 rounded  text-base ${
+              isHighlighted
+                ? ""
+                : isHovered
+                ? "bg-gray-200"
+                : "border-transparent"
+            }`}
+            onMouseEnter={() => setHoveredItem(item.id)}
+            onMouseLeave={() => setHoveredItem(null)}
+            onClick={() => setSelectedItem(item.id)}
+          >
+            <div className="text-gray-700 leading-relaxed">
+              {item.content_text && (
+                <div className="break-words">
+                  {searchTerm
+                    ? highlightText(item.content_text, searchTerm)
+                    : highlightReferences(
+                        item.content_text,
+                        item.references || []
+                      )}
+                </div>
+              )}
+            </div>
+
+            {item.children && item.children.length > 0 && (
+              <div className="mt-3 space-y-3">
+                {item.children.map((child) =>
+                  renderArticleChild(child, level + 1, item)
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      const isLargeContent = item.metadata?.isLargeContent;
+      const contentType = item.content_type;
+
+      const hasChildren = item.children && item.children.length > 0;
+      const isHighlighted = selectedItem === item.id;
+      const isHovered = hoveredItem === item.id;
+      const typeStyles = getTypeStyles(contentType);
+
+      const showHighlight =
+        isHighlighted &&
+        [
+          "division",
+          "part",
+          "section",
+          "subsection",
+          "article",
+          "note_section",
+        ].includes(contentType);
+      if (isLargeContent) {
+        return (
+          <div key={item.id} className="py-4 px-2 bg-blue-50">
+            <div
+              ref={(el) => {
+                contentRefs.current[item.id] = el;
+              }}
+              className="p-2 rounded-lg mb-6"
+            >
+              {(item.reference_code || item.title || item.content_text) && (
+                <div className="flex flex-wrap items-center gap-3 mb-2">
+                  {item.reference_code && (
+                    <h1 className={`text-3xl text-gray-500`}>
+                      {searchTerm
+                        ? highlightText(item.reference_code, searchTerm)
+                        : item.reference_code}
+                    </h1>
+                  )}
+                  {item.content_text && item.content_text !== item.title && (
+                    <p className={`text-3xl text-gray-500`}>
+                      {searchTerm
+                        ? highlightText(item.content_text, searchTerm)
+                        : highlightReferences(
+                            item.content_text,
+                            item.references || []
+                          )}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {hasChildren && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {item.children!.map((child) => (
+                  <div
+                    key={child.id}
+                    ref={(el) => {
+                      contentRefs.current[child.id] = el;
+                    }}
+                    className={`p-4 rounded-lg cursor-pointer transition-all
+                ${
+                  selectedItem === child.id
+                    ? "shadow-md shadow-black/20 bg-white"
+                    : "bg-white"
+                }
+                hover:shadow-md hover:shadow-black/10
+              `}
+                    onMouseEnter={() => setHoveredItem(child.id)}
+                    onMouseLeave={() => setHoveredItem(null)}
+                    onClick={() => handleGridItemClick(child)}
+                  >
+                    <div className="flex flex-col h-full">
+                      <div className="flex-1">
+                        <h3 className="text-base text-gray-900 mb-2">
+                          {(child.reference_code
+                            ? child.reference_code + " "
+                            : "") + (child.content_text || "")}
+                        </h3>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      if (item.content_type === "article") {
+        const isHighlighted = selectedItem === item.id;
+        const isHovered = hoveredItem === item.id;
+        const isParentHovered = hoveredParent === item.id;
+
+        return (
+          <div key={item.id} className="mb-6">
+            <div
+              ref={(el) => {
+                contentRefs.current[item.id] = el;
+              }}
+              className={`p-4 rounded-lg ${
+                showHighlight
+                  ? "bg-blue-50 border-blue-300 shadow-sm"
+                  : isHovered || isParentHovered
+                  ? "bg-gray-200 border-gray-300 shadow-sm"
+                  : ""
+              }`}
+              onMouseEnter={() => setHoveredItem(item.id)}
+              onMouseLeave={() => setHoveredItem(null)}
+              onClick={() => setSelectedItem(item.id)}
+            >
+              {(item.reference_code || item.content_text) && (
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  {item.reference_code && (
+                    <span className="px-2 py-1 rounded transition-colors">
+                      {item.reference_code}
+                    </span>
+                  )}
+                  {item.content_text && (
+                    <h3 className={`${typeStyles.text}`}>
+                      {searchTerm
+                        ? highlightText(item.content_text, searchTerm)
+                        : item.content_text}
+                    </h3>
+                  )}
+                </div>
+              )}
+
+              {hasChildren && (
+                <div className="space-y-3">
+                  {item.children!.map((child) => {
+                    if (child.content_type === "see_also") {
+                      return renderSeeAlsoContent(child);
+                    }
+                    return renderArticleChild(child, 0, item);
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div key={item.id} className="mb-6">
+          <div
+            ref={(el) => {
+              contentRefs.current[item.id] = el;
+            }}
+            className={`p-3 rounded-lg mb-1 ${
+              showHighlight
+                ? "bg-blue-50 border-blue-300 shadow-sm"
+                : isHovered
+                ? "bg-gray-200 border-gray-300 shadow-sm"
+                : ""
+            }`}
+            onMouseEnter={() => setHoveredItem(item.id)}
+            onMouseLeave={() => setHoveredItem(null)}
+            onClick={() => setSelectedItem(item.id)}
+          >
+            {(item.reference_code || item.content_text) && (
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                {item.content_text && item.content_text !== item.title && (
+                  <span className={`${typeStyles.text}`}>
+                    <span className="px-2 py-1 rounded transition-colors">
+                      {item.reference_code}
+                    </span>
+                    {searchTerm
+                      ? highlightText(item.content_text, searchTerm)
+                      : highlightReferences(
+                          item.content_text,
+                          item.references || []
+                        )}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {hasChildren &&
+              item.children!.some(
+                (child) => child.content_type === "see_also"
+              ) && (
+                <div className="mt-2">
+                  {item
+                    .children!.filter(
+                      (child) => child.content_type === "see_also"
+                    )
+                    .map((child) => renderSeeAlsoContent(child))}
+                </div>
+              )}
+          </div>
+
+          {hasChildren && item.content_type !== "article" && (
+            <div className="ml-1">
+              {item
+                .children!.filter((child) => child.content_type !== "see_also")
+                .map((child) => renderContentItem(child, level + 1))}
+            </div>
+          )}
+        </div>
+      );
+    },
+    [
+      contentExpandedItems,
+      selectedItem,
+      hoveredItem,
+      searchTerm,
+      highlightText,
+      highlightReferences,
+      renderNoteContent,
+      renderSeeAlsoContent,
+      handleNavigationClick,
+      renderArticleChild, // Make sure this is included
     ]
   );
 
