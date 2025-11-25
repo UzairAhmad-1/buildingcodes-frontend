@@ -38,3 +38,13 @@ body {
   margin: 0;
   padding: 0;
 }
+/* Add to your global CSS */
+.highlighted-item {
+  transition: all 0.3s ease-in-out;
+}
+
+/* Ensure highlight doesn't propagate to children */
+.highlighted-item * {
+  background-color: transparent !important;
+  border-left: none !important;
+}

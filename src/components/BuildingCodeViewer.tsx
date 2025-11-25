@@ -19,6 +19,7 @@ interface Reference {
   target_content_id: number;
   target_reference_code: string;
   hyperlink_target: string;
+  hyperlink_text: string;
   page_number: number;
   font_family: string;
   bbox: number[];
@@ -47,12 +48,20 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 }) => {
   const [navigationData, setNavigationData] = useState<HierarchyNode[]>([]);
   const [currentContent, setCurrentContent] = useState<HierarchyNode[]>([]);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchPagination, setSearchPagination] = useState({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 0,
+  });
+  const [lastSearchQuery, setLastSearchQuery] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [contentLoading, setContentLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<number | null>(null);
-  const [searchResults, setSearchResults] = useState<HierarchyNode[]>([]);
   const [hoveredItem, setHoveredItem] = useState<number | null>(null);
   const [showMobileNav, setShowMobileNav] = useState(false);
   const contentRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
@@ -92,17 +101,17 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     };
   }, []);
 
-  // Memoized values
-  const isSearchMode = useMemo(() => {
-    return searchTerm.trim().length > 0 && searchResults.length > 0;
-  }, [searchTerm, searchResults]);
-
   // Check if content is already loaded in current content
   const isContentAlreadyLoaded = useCallback(
     (contentId: number): boolean => {
       const checkInContent = (nodes: HierarchyNode[]): boolean => {
         for (const node of nodes) {
+          // If we find the exact item and it's not a grid view parent
           if (node.id === contentId) {
+            // Check if this is a grid view parent (has isLargeContent metadata)
+            if (node.metadata?.isLargeContent) {
+              return false; // Grid view items need to be loaded separately
+            }
             return true;
           }
           if (node.children && node.children.length > 0) {
@@ -122,6 +131,12 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   // Find parent content ID based on item type
   const findParentContentId = useCallback(
     (item: HierarchyNode): number => {
+      // For items that are children of grid view sections, load the child itself
+      const parentInCurrentContent = findParentInCurrentContent(item.id);
+      if (parentInCurrentContent?.metadata?.isLargeContent) {
+        return item.id; // Load the child directly since parent is in grid view
+      }
+
       // For division, part, section, note_section - load the item itself
       if (
         ["division", "part", "section", "note_section"].includes(
@@ -148,7 +163,33 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       // Fallback to the item itself
       return item.id;
     },
-    [navigationData]
+    [navigationData, currentContent]
+  );
+
+  // Helper function to find parent in current content
+  const findParentInCurrentContent = useCallback(
+    (childId: number): HierarchyNode | null => {
+      const findParent = (
+        nodes: HierarchyNode[],
+        targetId: number
+      ): HierarchyNode | null => {
+        for (const node of nodes) {
+          if (node.children) {
+            for (const child of node.children) {
+              if (child.id === targetId) {
+                return node;
+              }
+              const found = findParent([child], targetId);
+              if (found) return found;
+            }
+          }
+        }
+        return null;
+      };
+
+      return findParent(currentContent, childId);
+    },
+    [currentContent]
   );
 
   // Helper function to find parent in navigation data
@@ -250,8 +291,9 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   }, [documentId]);
 
   // Load content for specific item
+
   const loadContentForItem = useCallback(
-    async (contentId: number) => {
+    async (contentId: number, preserveHighlight: boolean = false) => {
       if (!documentId) return;
 
       try {
@@ -265,7 +307,11 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
         // Replace current content with the new item (as an array)
         setCurrentContent([contentItem]);
-        setSelectedItem(contentId);
+
+        // Only set selected item if we're not preserving a specific highlight
+        if (!preserveHighlight) {
+          setSelectedItem(contentId);
+        }
 
         // Auto-expand ALL items in the loaded content
         const allContentIds = new Set<number>();
@@ -300,14 +346,13 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       const container = contentContainerRef.current;
 
       if (element && container) {
-        const containerRect = container.getBoundingClientRect();
+        // First, remove any existing highlights
+
         const elementRect = element.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
 
         const scrollTop =
-          container.scrollTop +
-          (elementRect.top - containerRect.top) -
-          containerRect.height / 2 +
-          elementRect.height / 2;
+          container.scrollTop + (elementRect.top - containerRect.top) - 100;
 
         container.scrollTo({
           top: scrollTop,
@@ -317,13 +362,208 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     });
   }, []);
 
+  // Add this function to find the parent content for a highlight
+  const findParentContentForHighlight = useCallback(
+    async (contentId: number): Promise<number | null> => {
+      if (!documentId) return null;
+
+      try {
+        // Get the content item to understand its structure
+        const contentItem = await buildingCodeService.getContentItem(
+          documentId,
+          contentId
+        );
+
+        if (!contentItem) return null;
+
+        console.log("Found content item for highlight:", contentItem);
+
+        // For different content types, find the appropriate parent
+        if (
+          ["division", "part", "section", "note_section"].includes(
+            contentItem.content_type
+          )
+        ) {
+          return contentItem.id; // These can be loaded directly
+        }
+
+        // For deeper items, we need to find a suitable parent
+        let current = contentItem;
+        let levelsUp = 0;
+
+        while (current && levelsUp < 5) {
+          // Limit to prevent infinite loops
+          if (current.parent_id) {
+            const parent = await buildingCodeService.getContentItem(
+              documentId,
+              current.parent_id
+            );
+            if (parent) {
+              // Check if this parent is a suitable level to load
+              if (
+                [
+                  "division",
+                  "part",
+                  "section",
+                  "note_section",
+                  "article",
+                ].includes(parent.content_type)
+              ) {
+                console.log(
+                  "Found suitable parent:",
+                  parent.id,
+                  parent.content_type
+                );
+                return parent.id;
+              }
+              current = parent;
+              levelsUp++;
+            } else {
+              break;
+            }
+          } else {
+            break;
+          }
+        }
+
+        // Fallback: try to find in navigation
+        const findInNavigation = (
+          nodes: HierarchyNode[],
+          targetId: number
+        ): HierarchyNode | null => {
+          for (const node of nodes) {
+            if (node.id === targetId) {
+              return node;
+            }
+            if (node.children) {
+              const found = findInNavigation(node.children, targetId);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+
+        const navItem = findInNavigation(navigationData, contentId);
+        if (navItem) {
+          console.log(
+            "Found in navigation, using parent content ID:",
+            findParentContentId(navItem)
+          );
+          return findParentContentId(navItem);
+        }
+
+        return null;
+      } catch (error) {
+        console.error("Error finding parent content:", error);
+        return null;
+      }
+    },
+    [documentId, navigationData, findParentContentId]
+  );
+
+  const [highlightProcessed, setHighlightProcessed] = useState(false);
+
+  useEffect(() => {
+    const handleHighlightParam = async () => {
+      // Don't process if already processed or if we're in the middle of normal navigation
+      if (!highlightParam || !documentId || highlightProcessed) return;
+
+      try {
+        const contentId = parseInt(highlightParam);
+        if (isNaN(contentId)) return;
+
+        console.log("Highlight parameter found:", contentId);
+
+        // First, try to find the item in the current content
+        if (isContentAlreadyLoaded(contentId)) {
+          console.log("Content already loaded, scrolling to item");
+          setSelectedItem(contentId);
+          setTimeout(() => scrollToElement(contentId), 100);
+          setHighlightProcessed(true);
+          return;
+        }
+
+        // If not in current content, we need to find which parent section contains this item
+        console.log(
+          "Searching for parent section of highlighted item:",
+          contentId
+        );
+
+        // Use the service to find the parent content ID
+        const parentContentId = await findParentContentForHighlight(contentId);
+
+        if (parentContentId) {
+          console.log("Found parent content:", parentContentId);
+          setSelectedItem(contentId);
+          await loadContentForItem(parentContentId, true); // true means preserve highlight
+
+          // Scroll to the target after content is loaded
+          setTimeout(() => {
+            scrollToElement(contentId);
+            setHighlightProcessed(true); // Mark as processed after successful scroll
+          }, 300);
+        } else {
+          console.log("Could not find parent content for highlighted item");
+          setHighlightProcessed(true); // Mark as processed even if failed
+        }
+      } catch (error) {
+        console.error("Error handling highlight parameter:", error);
+        setHighlightProcessed(true); // Mark as processed even if error
+      }
+    };
+
+    // Only run if we have navigation data and highlight param and it hasn't been processed
+    if (navigationData.length > 0 && highlightParam && !highlightProcessed) {
+      handleHighlightParam();
+    }
+  }, [
+    highlightParam,
+    navigationData,
+    documentId,
+    isContentAlreadyLoaded,
+    loadContentForItem,
+    scrollToElement,
+    highlightProcessed, // Add this dependency
+    findParentContentForHighlight,
+  ]);
+
+  // Reset highlight processed state when documentId changes
+  useEffect(() => {
+    setHighlightProcessed(false);
+  }, [documentId]);
+
+  // Also reset when highlight param changes (in case user navigates with different highlights)
+  useEffect(() => {
+    setHighlightProcessed(false);
+  }, [highlightParam]);
+
   // Navigation click handler
   const handleNavigationClick = useCallback(
     (item: HierarchyNode) => {
       console.log("Navigation item clicked:", item.id, item.content_type);
 
-      const contentIdToLoad = findParentContentId(item);
-      console.log("Content to load:", contentIdToLoad);
+      // Reset highlight processed state when user manually navigates
+      setHighlightProcessed(true);
+
+      // Check if this item is currently displayed in grid view
+      const parentInCurrentContent = findParentInCurrentContent(item.id);
+      const isInGridView = parentInCurrentContent?.metadata?.isLargeContent;
+
+      console.log("Is in grid view:", isInGridView);
+      console.log("Parent in current content:", parentInCurrentContent);
+
+      let contentIdToLoad;
+
+      if (isInGridView) {
+        // If clicking from grid view, load the item directly
+        contentIdToLoad = item.id;
+        console.log("Loading grid view item directly:", contentIdToLoad);
+      } else {
+        // Normal logic for non-grid view items
+        contentIdToLoad = findParentContentId(item);
+        console.log("Loading parent content:", contentIdToLoad);
+      }
+
       console.log(
         "Is content already loaded?",
         isContentAlreadyLoaded(item.id)
@@ -335,8 +575,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       // Auto-expand the clicked item in navigation
       setNavigationExpandedItems((prev) => new Set(prev).add(item.id));
 
-      // Check if the content is already loaded in current view
-      if (isContentAlreadyLoaded(item.id)) {
+      // Check if the content is already loaded in current view (and not in grid view)
+      if (isContentAlreadyLoaded(item.id) && !isInGridView) {
         console.log("Content already loaded, just scrolling to item");
         scrollToElement(item.id);
         return;
@@ -352,6 +592,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       findParentContentId,
       isContentAlreadyLoaded,
       scrollToElement,
+      findParentInCurrentContent,
     ]
   );
 
@@ -373,60 +614,68 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     []
   );
 
-  // Search functionality - calls backend API
   const handleSearch = useCallback(
-    (term: string) => {
-      setSearchTerm(term);
-
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
+    async (term: string, page: number = 1) => {
+      if (!term.trim()) {
+        setSearchResults([]);
+        setSearchTerm("");
+        setLastSearchQuery("");
+        setSearchPagination({
+          page: 1,
+          limit: 10,
+          total: 0,
+          totalPages: 0,
+        });
+        return;
       }
 
-      searchTimeoutRef.current = setTimeout(async () => {
-        if (!term.trim()) {
-          setSearchResults([]);
-          return;
-        }
+      try {
+        setSearchLoading(true);
+        setLastSearchQuery(term);
 
-        try {
-          console.log("Searching for:", term);
-          const searchResponse = await buildingCodeService.searchContent(
-            documentId!,
-            term
-          );
-          setSearchResults(searchResponse.results);
-        } catch (error) {
-          console.error("Search error:", error);
-          const results: HierarchyNode[] = [];
-          const searchInNodes = (nodes: HierarchyNode[]) => {
-            nodes.forEach((node) => {
-              const matchesSearch =
-                node.title?.toLowerCase().includes(term.toLowerCase()) ||
-                node.content_text?.toLowerCase().includes(term.toLowerCase()) ||
-                node.reference_code?.toLowerCase().includes(term.toLowerCase());
+        const searchResponse = await buildingCodeService.searchContent(term, {
+          documentId: documentId,
+          page: page,
+          limit: 15,
+        });
 
-              if (matchesSearch) {
-                results.push(node);
-              }
-
-              if (node.children) {
-                searchInNodes(node.children);
-              }
-            });
-          };
-
-          searchInNodes(navigationData);
-          setSearchResults(results);
-        }
-      }, 300);
+        setSearchResults(searchResponse.results);
+        setSearchPagination(searchResponse.pagination);
+      } catch (error) {
+        console.error("Search error:", error);
+        setSearchResults([]);
+        // You might want to show an error message to the user
+      } finally {
+        setSearchLoading(false);
+      }
     },
-    [documentId, navigationData]
+    [documentId]
+  );
+
+  // Add a new function to handle search submission (on Enter key or search icon click)
+  const handleSearchSubmit = useCallback(() => {
+    if (searchTerm.trim()) {
+      handleSearch(searchTerm.trim(), 1);
+    }
+  }, [searchTerm, handleSearch]);
+
+  // Add a function to handle pagination
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      if (lastSearchQuery) {
+        handleSearch(lastSearchQuery, newPage);
+      }
+    },
+    [lastSearchQuery, handleSearch]
   );
 
   // Handle reference click
   const handleReferenceClick = useCallback(
     (reference: Reference) => {
       if (reference.target_content_id) {
+        // Reset highlight processed state
+        setHighlightProcessed(true);
+
         setSelectedItem(reference.target_content_id);
 
         if (isContentAlreadyLoaded(reference.target_content_id)) {
@@ -593,25 +842,34 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     [handleSeeAlsoClick]
   );
 
-  const highlightText = useCallback((text: string, highlight: string) => {
-    if (!highlight || !text) return text;
-
-    const parts = text.split(new RegExp(`(${highlight})`, "gi"));
+  const isSearchMode = useMemo(() => {
     return (
-      <>
-        {parts.map((part, i) =>
-          part.toLowerCase() === highlight.toLowerCase() ? (
-            <mark key={i} className="bg-yellow-300 px-0.5 rounded">
-              {part}
-            </mark>
-          ) : (
-            part
-          )
-        )}
-      </>
+      lastSearchQuery.trim().length > 0 &&
+      (searchResults.length > 0 || searchLoading)
     );
-  }, []);
+  }, [lastSearchQuery, searchResults, searchLoading]);
 
+  const highlightText = useCallback(
+    (text: string, highlight: string) => {
+      if (!highlight || !text || !isSearchMode) return text; // Only highlight in search mode
+
+      const parts = text.split(new RegExp(`(${highlight})`, "gi"));
+      return (
+        <>
+          {parts.map((part, i) =>
+            part.toLowerCase() === highlight.toLowerCase() ? (
+              <mark key={i} className="bg-yellow-300 px-0.5 rounded">
+                {part}
+              </mark>
+            ) : (
+              part
+            )
+          )}
+        </>
+      );
+    },
+    [isSearchMode]
+  );
   const getTypeStyles = (type: string) => {
     const styles: Record<string, { text: string }> = {
       division: { text: "text-3xl text-black font-normal" },
@@ -733,7 +991,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           ref={(el) => {
             contentRefs.current[definition.id] = el;
           }}
-          className="bg-white"
+          className=""
           onMouseEnter={() => setHoveredItem(definition.id)}
           onMouseLeave={() => setHoveredItem(null)}
           onClick={() => setSelectedItem(definition.id)}
@@ -817,6 +1075,10 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   const handleGridItemClick = useCallback(
     (child: HierarchyNode) => {
       console.log("Grid item clicked:", child.id, child.content_type);
+
+      // Reset highlight processed state
+      setHighlightProcessed(true);
+
       setSelectedItem(child.id);
 
       console.log("Loading grid item content:", child.id);
@@ -978,15 +1240,15 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               contentRefs.current[item.id] = el;
             }}
             className={`ml-2 p-2 rounded transition-all 
-${
-  activeChildParent === item.id
-    ? "bg-gray-100 border border-black border-l-4 border-l-black"
-    : isHighlighted
-    ? "bg-blue-50 border border-blue-300 border-l-4 border-l-blue-600"
-    : isHovered
-    ? "bg-gray-100 border border-black border-l-4 border-l-blue-500"
-    : ""
-}`}
+  ${
+    activeChildParent === item.id
+      ? "bg-gray-100 border border-black border-l-4 border-l-black"
+      : isHighlighted
+      ? "bg-blue-50 border border-blue-300 border-l-4 border-l-blue-600"
+      : isHovered
+      ? "bg-gray-100 border border-black border-l-4 border-l-blue-500"
+      : ""
+  }`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
             onClick={(e) => {
@@ -1145,19 +1407,19 @@ ${
               contentRefs.current[item.id] = el;
             }}
             className={`p-3 rounded border  
-  ${
-    activeChildParent === item.id
-      ? // CHILD HOVER → keep normal hover style but override left border
-        "bg-gray-200 border-gray-300 border-l-4 border-l-black"
-      : isHighlighted
-      ? // SELECTED
-        "bg-blue-50 border-blue-300 border-l-4 shadow-sm"
-      : isHovered
-      ? // NORMAL HOVER
-        "bg-gray-200 border-gray-300 border-l-4 border-l-blue-500"
-      : // DEFAULT
-        "border-transparent"
-  }`}
+    ${
+      activeChildParent === item.id
+        ? // CHILD HOVER → keep normal hover style but override left border
+          "bg-gray-200 border-gray-300 border-l-4 border-l-black"
+        : isHighlighted
+        ? // SELECTED
+          "bg-blue-50 border-blue-300 border-l-4 shadow-sm"
+        : isHovered
+        ? // NORMAL HOVER
+          "bg-gray-200 border-gray-300 border-l-4 border-l-blue-500"
+        : // DEFAULT
+          "border-transparent"
+    }`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
             onClick={() => setSelectedItem(item.id)}
@@ -1209,15 +1471,15 @@ ${
               contentRefs.current[item.id] = el;
             }}
             className={`p-3 rounded border  
-        ${
-          activeChildParent === item.id
-            ? "bg-gray-200 border-gray-700 border-l-4 border-l-black"
-            : isHighlighted
-            ? "bg-blue-50 border-blue-300 border-l-4 shadow-sm"
-            : isHovered
-            ? "bg-gray-200 border-gray-700 border-l-4 border-l-blue-500"
-            : "border-transparent"
-        }`}
+          ${
+            activeChildParent === item.id
+              ? "bg-gray-200 border-gray-700 border-l-4 border-l-black"
+              : isHighlighted
+              ? "bg-blue-50 border-blue-300 border-l-4 shadow-sm"
+              : isHovered
+              ? "bg-gray-200 border-gray-700 border-l-4 border-l-blue-500"
+              : "border-transparent"
+          }`}
             onMouseEnter={() => {
               setHoveredItem(item.id);
               if (parentArticle) {
@@ -1342,6 +1604,7 @@ ${
       renderClauseContent,
     ]
   );
+
   // Content item renderer
   const renderContentItem = useCallback(
     (item: HierarchyNode, level: number = 0) => {
@@ -1352,17 +1615,99 @@ ${
           </div>
         );
       }
+
+      // Check if this is a large content item (applies to note_section and other types)
+      const isLargeContent = item.metadata?.isLargeContent;
+      const contentType = item.content_type;
+
+      // Handle large content items with grid view
+      if (
+        isLargeContent &&
+        ["note_section", "division", "part", "section"].includes(contentType)
+      ) {
+        const hasChildren = item.children && item.children.length > 0;
+
+        return (
+          <div key={item.id} className="py-4 px-2 bg-blue-50">
+            <div
+              ref={(el) => {
+                contentRefs.current[item.id] = el;
+              }}
+              className="p-2 rounded-lg mb-6"
+            >
+              {/* Header for the large section */}
+              <div className="flex flex-wrap items-center gap-3 mb-2">
+                {item.reference_code && (
+                  <h1 className="text-3xl text-gray-500">
+                    {searchTerm
+                      ? highlightText(item.reference_code, searchTerm)
+                      : item.reference_code}
+                  </h1>
+                )}
+                {item.content_text && (
+                  <p className="text-3xl text-gray-500">
+                    {searchTerm
+                      ? highlightText(item.content_text, searchTerm)
+                      : item.content_text}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Grid view for children */}
+            {hasChildren && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {item.children!.map((child) => (
+                  <div
+                    key={child.id}
+                    ref={(el) => {
+                      contentRefs.current[child.id] = el;
+                    }}
+                    className={`p-4 rounded-lg cursor-pointer transition-all
+                      ${
+                        selectedItem === child.id
+                          ? "shadow-md shadow-black/20 bg-white"
+                          : "bg-white"
+                      }
+                      hover:shadow-md hover:shadow-black/10
+                    `}
+                    onMouseEnter={() => setHoveredItem(child.id)}
+                    onMouseLeave={() => setHoveredItem(null)}
+                    onClick={() => handleGridItemClick(child)}
+                  >
+                    <div className="flex flex-col h-full">
+                      <div className="flex-1">
+                        {/* Show reference code if available */}
+                        {child.reference_code && (
+                          <div className="text-sm font-medium text-gray-700 mb-1">
+                            {child.reference_code}
+                          </div>
+                        )}
+                        <h3 className="text-base text-gray-900">
+                          {child.content_text || ""}
+                        </h3>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // Handle note_section (non-large content version)
       if (item.content_type === "note_section") {
         const hasChildren = item.children && item.children.length > 0;
         const isHighlighted = selectedItem === item.id;
         const isHovered = hoveredItem === item.id;
-        const typeStyles = getTypeStyles("section"); // Use section styles for note_section
+        const typeStyles = getTypeStyles("section");
 
         const showHighlight = isHighlighted;
 
         return (
           <div key={item.id} className="mb-6">
-            {/* Note Section Header - separate block like section */}
+            {/* Note Section Header */}
             <div
               ref={(el) => {
                 contentRefs.current[item.id] = el;
@@ -1394,17 +1739,15 @@ ${
               </div>
             </div>
 
-            {/* Note Section Children - separate from the header */}
+            {/* Note Section Children */}
             {hasChildren && (
               <div className="space-y-4">
                 {item.children!.map((child) => {
-                  // For note_item and note_content, use the note renderer
                   if (
                     ["note_item", "note_content"].includes(child.content_type)
                   ) {
                     return renderNoteContent(child, level + 1);
                   }
-                  // For other types, use regular content rendering
                   return renderContentItem(child, level + 1);
                 })}
               </div>
@@ -1464,9 +1807,7 @@ ${
         );
       }
 
-      const isLargeContent = item.metadata?.isLargeContent;
-      const contentType = item.content_type;
-
+      // Regular content handling for other types
       const hasChildren = item.children && item.children.length > 0;
       const isHighlighted = selectedItem === item.id;
       const isHovered = hoveredItem === item.id;
@@ -1482,78 +1823,8 @@ ${
           "article",
           "note_section",
         ].includes(contentType);
-      if (isLargeContent) {
-        return (
-          <div key={item.id} className="py-4 px-2 bg-blue-50">
-            <div
-              ref={(el) => {
-                contentRefs.current[item.id] = el;
-              }}
-              className="p-2 rounded-lg mb-6"
-            >
-              {(item.reference_code || item.title || item.content_text) && (
-                <div className="flex flex-wrap items-center gap-3 mb-2">
-                  {item.reference_code && (
-                    <h1 className={`text-3xl text-gray-500`}>
-                      {searchTerm
-                        ? highlightText(item.reference_code, searchTerm)
-                        : item.reference_code}
-                    </h1>
-                  )}
-                  {item.content_text && item.content_text !== item.title && (
-                    <p className={`text-3xl text-gray-500`}>
-                      {searchTerm
-                        ? highlightText(item.content_text, searchTerm)
-                        : highlightReferences(
-                            item.content_text,
-                            item.references || []
-                          )}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {hasChildren && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {item.children!.map((child) => (
-                  <div
-                    key={child.id}
-                    ref={(el) => {
-                      contentRefs.current[child.id] = el;
-                    }}
-                    className={`p-4 rounded-lg cursor-pointer transition-all
-                ${
-                  selectedItem === child.id
-                    ? "shadow-md shadow-black/20 bg-white"
-                    : "bg-white"
-                }
-                hover:shadow-md hover:shadow-black/10
-              `}
-                    onMouseEnter={() => setHoveredItem(child.id)}
-                    onMouseLeave={() => setHoveredItem(null)}
-                    onClick={() => handleGridItemClick(child)}
-                  >
-                    <div className="flex flex-col h-full">
-                      <div className="flex-1">
-                        <h3 className="text-base text-gray-900 mb-2">
-                          {(child.reference_code
-                            ? child.reference_code + " "
-                            : "") + (child.content_text || "")}
-                        </h3>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      }
 
       if (item.content_type === "article") {
-        const isHighlighted = selectedItem === item.id;
-        const isHovered = hoveredItem === item.id;
         const isParentHovered = hoveredParent === item.id;
 
         return (
@@ -1674,7 +1945,8 @@ ${
       renderNoteContent,
       renderSeeAlsoContent,
       handleNavigationClick,
-      renderArticleChild, // Make sure this is included
+      renderArticleChild,
+      handleGridItemClick, // Make sure this is included
     ]
   );
 
@@ -1689,16 +1961,17 @@ ${
       )}
       <div
         className={`
-        fixed top-0 left-0 h-full bg-white shadow-lg z-50 transform transition-transform duration-300 ease-in-out
-        ${showMobileNav ? "translate-x-0" : "-translate-x-full"}
-        w-80 md:hidden
-      `}
+          fixed top-0 left-0 h-full bg-white shadow-lg z-50 transform transition-transform duration-300 ease-in-out
+          ${showMobileNav ? "translate-x-0" : "-translate-x-full"}
+          w-80 md:hidden
+        `}
       >
         <div className="bg-gradient-to-r from-gray-50 to-white px-5 py-4 border-b border-gray-200 flex items-center justify-between">
           <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
             Navigation
           </h2>
           <button
+            title="close navigation"
             onClick={() => setShowMobileNav(false)}
             className="p-1 rounded-lg hover:bg-gray-200 transition-colors"
           >
@@ -1711,7 +1984,209 @@ ${
       </div>
     </>
   );
+  const searchInput = (
+    <div className="relative">
+      <Search
+        className="absolute left-3 md:left-4 top-1/2 transform -translate-y-1/2 text-gray-400"
+        size={18}
+      />
+      <input
+        type="text"
+        placeholder="Search by title, content, or reference code..."
+        className="w-full pl-10 md:pl-12 pr-10 md:pr-12 py-2 md:py-3 border text-black border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white shadow-sm transition-all"
+        value={searchTerm}
+        onChange={(e) => {
+          setSearchTerm(e.target.value);
+          // Don't trigger search on every change, only on submit
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            handleSearchSubmit();
+          }
+        }}
+      />
+      {searchTerm && (
+        <button
+          title="clear search"
+          onClick={() => {
+            setSearchTerm("");
+            setSearchResults([]);
+            setLastSearchQuery("");
+          }}
+          className="absolute cursor-pointer right-10 md:right-12 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+        >
+          <X size={16} />
+        </button>
+      )}
+      <button
+        onClick={handleSearchSubmit}
+        disabled={searchLoading || !searchTerm.trim()}
+        className="absolute right-3 md:right-4 top-1/2 transform -translate-y-1/2 cursor-pointer text-gray-400 hover:text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {searchLoading ? (
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+        ) : (
+          <Search size={16} />
+        )}
+      </button>
+    </div>
+  );
+  // Update the SearchResultsSection component
+  const SearchResultsSection = () => (
+    <aside
+      className={`
+      bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-shrink-0
+      ${isMobile ? "fixed inset-4 z-40" : "w-1/4"}
+    `}
+    >
+      {isMobile && (
+        <div className="bg-gradient-to-r from-blue-50 to-blue-100 px-5 py-4 border-b border-blue-200 flex items-center justify-between">
+          <h2 className="text-sm font-bold text-blue-700 uppercase tracking-wider flex items-center gap-2">
+            <Search size={16} />
+            Search Results
+            <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full ml-1">
+              {searchPagination.total}
+            </span>
+          </h2>
+          <button
+            title="search"
+            onClick={() => {
+              setSearchTerm("");
+              setSearchResults([]);
+              setLastSearchQuery("");
+            }}
+            className="p-1 rounded-lg hover:bg-blue-200 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+      )}
 
+      <div className="overflow-y-auto h-full flex flex-col">
+        {/* Search Results List */}
+        <div className="flex-1 p-2">
+          {searchLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+            </div>
+          ) : searchResults.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              No results found for "{lastSearchQuery}"
+            </div>
+          ) : (
+            searchResults.map((result) => (
+              <div
+                key={result.id}
+                className={`flex items-center px-3 py-3 cursor-pointer hover:bg-gray-100  rounded-lg mb-1 ${
+                  selectedItem === result.id
+                    ? "bg-blue-100 border-l-4 border-blue-600"
+                    : ""
+                }`}
+                onClick={() => {
+                  // Reset highlight processed state when user clicks search result
+                  setHighlightProcessed(true);
+
+                  // Create a proper HierarchyNode from the search result
+                  const hierarchyNode: HierarchyNode = {
+                    id: result.id,
+                    parent_id: result.parentId,
+                    content_type: result.contentType,
+                    reference_code: result.referenceCode,
+                    content_text: result.contentText,
+                    title: result.title,
+                    sequence_order: result.sequenceOrder,
+                    children: [],
+                  };
+                  handleNavigationClick(hierarchyNode);
+                }}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-base font-medium text-gray-900 line-clamp-1">
+                    {result.referenceCode && (
+                      <span className="font-mono text-base text-black mr-2">
+                        {result.referenceCode}
+                      </span>
+                    )}
+                    {result.contentText?.substring(0, 60)}
+                  </div>
+                  {result.contentText &&
+                    result.contentText !== result.title && (
+                      <div className="text-xs text-gray-600 line-clamp-2 mt-1">
+                        {result.contentText.substring(0, 100) + "..."}
+                      </div>
+                    )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Pagination Controls */}
+        {searchPagination.totalPages > 1 && (
+          <div className="border-t border-gray-200 p-3 bg-gray-50">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => handlePageChange(searchPagination.page - 1)}
+                disabled={searchPagination.page <= 1}
+                className="px-3 py-1 text-sm bg-white border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Previous
+              </button>
+
+              <span className="text-sm text-gray-600">
+                Page {searchPagination.page} of {searchPagination.totalPages}
+              </span>
+
+              <button
+                onClick={() => handlePageChange(searchPagination.page + 1)}
+                disabled={searchPagination.page >= searchPagination.totalPages}
+                className="px-3 py-1 text-sm bg-white border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+
+  // Update the main content area to show search info
+  const SearchInfoHeader = () => (
+    <div className="mb-6 pb-4 border-b border-gray-200">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">
+            Search Results for "{lastSearchQuery}"
+          </h2>
+          <p className="text-sm text-gray-600 mt-1">
+            Found {searchPagination.total} matching items
+            {searchPagination.totalPages > 1 &&
+              ` • Page ${searchPagination.page} of ${searchPagination.totalPages}`}
+          </p>
+        </div>
+
+        {searchPagination.totalPages > 1 && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handlePageChange(searchPagination.page - 1)}
+              disabled={searchPagination.page <= 1}
+              className="px-3 py-1 text-sm bg-white border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            >
+              ← Previous
+            </button>
+            <button
+              onClick={() => handlePageChange(searchPagination.page + 1)}
+              disabled={searchPagination.page >= searchPagination.totalPages}
+              className="px-3 py-1 text-sm bg-white border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            >
+              Next →
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
@@ -1755,6 +2230,7 @@ ${
             <div className="flex items-center flex-1 min-w-0">
               {/* Mobile menu button */}
               <button
+                title="mobile button"
                 onClick={() => setShowMobileNav(true)}
                 className="md:hidden mr-3 p-2 rounded-lg hover:bg-gray-100 transition-colors"
               >
@@ -1769,33 +2245,7 @@ ${
             </div>
 
             {/* Right side - Search bar */}
-            <div className="flex-1 max-w-2xl">
-              <div className="relative">
-                <Search
-                  className="absolute left-3 md:left-4 top-1/2 transform -translate-y-1/2 text-gray-400"
-                  size={18}
-                />
-                <input
-                  type="text"
-                  placeholder="Search by title, content, or reference code..."
-                  className="w-full pl-10 md:pl-12 pr-10 md:pr-12 py-2 md:py-3 border text-black border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white shadow-sm transition-all"
-                  value={searchTerm}
-                  onChange={(e) => handleSearch(e.target.value)}
-                />
-                {searchTerm && (
-                  <button
-                    title="search"
-                    onClick={() => {
-                      setSearchTerm("");
-                      setSearchResults([]);
-                    }}
-                    className="absolute right-3 md:right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    <X size={16} />
-                  </button>
-                )}
-              </div>
-            </div>
+            <div className="flex-1 max-w-2xl">{searchInput}</div>
           </div>
         </div>
       </header>
@@ -1805,71 +2255,7 @@ ${
         className={`flex-1 flex overflow-hidden max-w-[1800px] mx-auto w-full px-3 md:px-6 py-2 gap-4 md:gap-6`}
       >
         {/* Search Results Column - Only shown in search mode */}
-        {isSearchMode && (
-          <aside
-            className={`
-            bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-shrink-0
-            ${isMobile ? "fixed inset-4 z-40" : "w-1/4"}
-          `}
-          >
-            {isMobile && (
-              <div className="bg-gradient-to-r from-blue-50 to-blue-100 px-5 py-4 border-b border-blue-200 flex items-center justify-between">
-                <h2 className="text-sm font-bold text-blue-700 uppercase tracking-wider flex items-center gap-2">
-                  <Search size={16} />
-                  Search Results
-                  <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full ml-1">
-                    {searchResults.length}
-                  </span>
-                </h2>
-                <button
-                  onClick={() => setSearchTerm("")}
-                  className="p-1 rounded-lg hover:bg-blue-200 transition-colors"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-            )}
-            <div className="overflow-y-auto h-full p-2">
-              {searchResults.map((result) => (
-                <div
-                  key={result.id}
-                  className={`flex items-center px-3 py-3 cursor-pointer hover:bg-blue-50 transition-colors rounded-lg mb-1 ${
-                    selectedItem === result.id
-                      ? "bg-blue-100 border-l-4 border-blue-600"
-                      : ""
-                  }`}
-                  onClick={() => handleNavigationClick(result)}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 line-clamp-1">
-                      {result.reference_code && (
-                        <span className="font-mono text-xs text-blue-600 mr-2">
-                          {result.reference_code}
-                        </span>
-                      )}
-                      {result.title || result.content_text?.substring(0, 60)}
-                    </div>
-                    {result.content_text &&
-                      result.content_text !== result.title && (
-                        <div className="text-xs text-gray-600 line-clamp-2 mt-1">
-                          {searchTerm
-                            ? highlightText(
-                                result.content_text.substring(0, 100) + "...",
-                                searchTerm
-                              )
-                            : result.content_text.substring(0, 100) + "..."}
-                        </div>
-                      )}
-                    <div className="text-xs text-gray-400 mt-1 capitalize">
-                      {result.content_type}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </aside>
-        )}
-
+        {isSearchMode && <SearchResultsSection />}
         {/* Navigation Sidebar - Hidden in search mode and mobile */}
         {!isSearchMode && !isMobile && (
           <aside className="w-1/4 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-shrink-0">
@@ -1887,9 +2273,9 @@ ${
         {/* Content Area */}
         <main
           className={`
-            bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden 
-            ${isSearchMode ? "flex-1" : isMobile ? "w-full" : "w-3/4"}
-          `}
+              bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden 
+              ${isSearchMode ? "flex-1" : isMobile ? "w-full" : "w-3/4"}
+            `}
         >
           <div ref={contentContainerRef} className="h-full overflow-y-auto">
             <div
@@ -1913,16 +2299,7 @@ ${
                 </div>
               ) : (
                 <div>
-                  {isSearchMode && (
-                    <div className="mb-6 pb-4 border-b border-gray-200">
-                      <h2 className="text-lg font-semibold text-gray-900">
-                        Search Results for "{searchTerm}"
-                      </h2>
-                      <p className="text-sm text-gray-600 mt-1">
-                        Found {searchResults.length} matching items
-                      </p>
-                    </div>
-                  )}
+                  {isSearchMode && <SearchInfoHeader />}
                   {currentContent.map((item) => renderContentItem(item))}
                 </div>
               )}

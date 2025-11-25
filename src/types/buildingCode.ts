@@ -20,6 +20,7 @@ export interface Reference {
   target_content_id: number;
   target_reference_code: string;
   hyperlink_target: string;
+  hyperlink_text: string;
   page_number: number;
   font_family: string;
   bbox: number[];

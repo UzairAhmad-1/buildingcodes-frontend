@@ -369,6 +369,10 @@ const LibraryHome: React.FC = () => {
       window.location.href = `/document/${documentId}`;
     }
   };
+  const truncateText = (text: string | undefined, max: number = 60): string => {
+    if (!text) return "";
+    return text.length > max ? text.slice(0, max) + "..." : text;
+  };
 
   // Highlight search terms in text
   const highlightText = (text: string, highlight: string) => {
@@ -762,15 +766,17 @@ const LibraryHome: React.FC = () => {
                                                   </span>
                                                 )}
 
-                                                {headerItem.title &&
-                                                  headerItem.title.trim() && (
-                                                    <span className="underline leading-snug">
-                                                      {highlightText(
-                                                        headerItem.title,
-                                                        searchQuery
-                                                      )}
-                                                    </span>
-                                                  )}
+                                                {headerItem.content_text?.trim() && (
+                                                  <span className="underline leading-snug">
+                                                    {highlightText(
+                                                      truncateText(
+                                                        headerItem.content_text.trim(),
+                                                        60
+                                                      ),
+                                                      searchQuery
+                                                    )}
+                                                  </span>
+                                                )}
                                               </div>
 
                                               {/* Article Metadata */}
@@ -804,26 +810,16 @@ const LibraryHome: React.FC = () => {
                                                     </span>
                                                   )}
                                                   {highlightText(
-                                                    child.content_text ||
-                                                      child.title,
+                                                    child.content_text?.substring(
+                                                      0,
+                                                      60
+                                                    ),
                                                     searchQuery
                                                   )}
                                                 </div>
                                               ))}
                                             </div>
                                           )}
-
-                                          {/* Show content text if no children but has content */}
-                                          {!article &&
-                                            headerItem.content_text &&
-                                            headerItem.content_text.trim() && (
-                                              <div className="mt-3 text-gray-700 leading-relaxed">
-                                                {highlightText(
-                                                  headerItem.content_text,
-                                                  searchQuery
-                                                )}
-                                              </div>
-                                            )}
                                         </div>
                                       );
                                     }

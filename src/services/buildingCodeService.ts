@@ -82,24 +82,32 @@ export const buildingCodeService = {
   },
 
   async searchContent(
-    documentId: string,
     query: string,
     options?: {
-      contentType?: string;
+      documentId?: string;
       page?: number;
       limit?: number;
       signal?: AbortSignal;
     }
-  ): Promise<any> {
+  ): Promise<{
+    results: any[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+    };
+  }> {
     const params = new URLSearchParams({ q: query });
-    if (options?.contentType) params.append("contentType", options.contentType);
+
+    if (options?.documentId) params.append("documentId", options.documentId);
     if (options?.page) params.append("page", options.page.toString());
     if (options?.limit) params.append("limit", options.limit.toString());
 
-    const response = await fetch(
-      `${API_BASE_URL}/pdf-documents/${documentId}/search?${params}`,
-      { signal: options?.signal }
-    );
+    const response = await fetch(`${API_BASE_URL}/search?${params}`, {
+      signal: options?.signal,
+    });
+
     if (!response.ok) throw new Error("Failed to search content");
     return response.json();
   },
