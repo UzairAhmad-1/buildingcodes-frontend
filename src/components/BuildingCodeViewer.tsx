@@ -925,8 +925,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       return (
         <div key={item.id}>
           <div
-            className={`flex items-center px-3 py-2 cursor-pointer hover:bg-blue-50 transition-colors ${
-              isSelected ? "bg-blue-100 border-l-4 border-blue-600" : ""
+            className={`flex items-center px-3 py-2 cursor-pointer hover:bg-blue-50 transition-colors border-l-4 border-l-transparent ${
+              isSelected ? "bg-blue-100 !border-l-blue-600" : ""
             }`}
             style={{ paddingLeft: `${level * 16 + 12}px` }}
             onClick={() => handleNavigationClick(item)}
@@ -1024,7 +1024,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                   return (
                     <div
                       key={child.id}
-                      className="text-sm text-black leading-relaxed hover:bg-gray-100 hover:border hover:border-black"
+                      className="text-sm text-black leading-relaxed hover:bg-gray-100 border border-transparent hover:!border-black"
                     >
                       {child.content_text && (
                         <div className="flex items-start gap-1">
@@ -1230,14 +1230,14 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             ref={(el) => {
               contentRefs.current[item.id] = el;
             }}
-            className={`ml-2 p-2 rounded transition-all 
+            className={`ml-2 p-2 rounded transition-all border border-transparent border-l-4 border-l-transparent
   ${
     activeChildParent === item.id
-      ? "bg-gray-100 border border-black border-l-4 border-l-black"
+      ? "bg-gray-100 !border-black !border-l-black"
       : isHighlighted
-      ? "bg-blue-50 border border-blue-300 border-l-4 border-l-blue-600"
+      ? "bg-blue-50 !border-blue-300 !border-l-blue-600"
       : isHovered
-      ? "bg-gray-100 border border-black border-l-4 border-l-blue-500"
+      ? "bg-gray-100 !border-black !border-l-blue-500"
       : ""
   }`}
             onMouseEnter={() => setHoveredItem(item.id)}
@@ -1300,11 +1300,11 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             ref={(el) => {
               contentRefs.current[item.id] = el;
             }}
-            className={`ml-2 p-1 rounded  ${
+            className={`ml-2 p-1 rounded border border-transparent border-l-4 border-l-transparent ${
               isHighlighted
                 ? "bg-blue-50"
                 : isHovered
-                ? "bg-gray-100 border border-black border-l-4 border-l-blue-500"
+                ? "bg-gray-100 !border-black !border-l-blue-500"
                 : ""
             }`}
             onMouseEnter={() => {
@@ -1397,19 +1397,18 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             ref={(el) => {
               contentRefs.current[item.id] = el;
             }}
-            className={`p-3 rounded border  
+            className={`p-3 rounded border border-transparent border-l-4 border-l-transparent mb-0
     ${
       activeChildParent === item.id
         ? // CHILD HOVER → keep normal hover style but override left border
-          "bg-gray-200 border-gray-300 border-l-4 border-l-black"
+          "bg-gray-200 !border-gray-300 !border-l-black"
         : isHighlighted
         ? // SELECTED
-          "bg-blue-50 border-blue-300 border-l-4 shadow-sm"
+          "bg-blue-50 !border-blue-300 !border-l-blue-600 shadow-sm"
         : isHovered
         ? // NORMAL HOVER
-          "bg-gray-200 border-gray-300 border-l-4 border-l-blue-500"
-        : // DEFAULT
-          "border-transparent"
+          "bg-gray-200 !border-gray-300 !border-l-blue-500"
+        : ""
     }`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
@@ -1461,15 +1460,15 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             ref={(el) => {
               contentRefs.current[item.id] = el;
             }}
-            className={`p-3 rounded border  
+            className={`p-3 rounded border border-transparent border-l-4 border-l-transparent mb-0
           ${
             activeChildParent === item.id
-              ? "bg-gray-200 border-gray-700 border-l-4 border-l-black"
+              ? "bg-gray-200 !border-gray-700 !border-l-black"
               : isHighlighted
-              ? "bg-blue-50 border-blue-300 border-l-4 shadow-sm"
+              ? "bg-blue-50 !border-blue-300 !border-l-blue-600 shadow-sm"
               : isHovered
-              ? "bg-gray-200 border-gray-700 border-l-4 border-l-blue-500"
-              : "border-transparent"
+              ? "bg-gray-200 !border-gray-700 !border-l-blue-500"
+              : ""
           }`}
             onMouseEnter={() => {
               setHoveredItem(item.id);
@@ -1535,6 +1534,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                             key={child.id}
                             onMouseEnter={() => setActiveChildParent(item.id)}
                             onMouseLeave={() => setActiveChildParent(null)}
+                            className="mb-0"
                           >
                             {renderClauseContent(child)}
                           </div>
@@ -2068,9 +2068,9 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             searchResults.map((result) => (
               <div
                 key={result.id}
-                className={`flex items-center px-3 py-3 cursor-pointer hover:bg-gray-100  rounded-lg mb-1 ${
+                className={`flex items-center px-3 py-3 cursor-pointer hover:bg-gray-100 rounded-lg mb-1 border-l-4 border-l-transparent ${
                   selectedItem === result.id
-                    ? "bg-blue-100 border-l-4 border-blue-600"
+                    ? "bg-blue-100 !border-l-blue-600"
                     : ""
                 }`}
                 onClick={() => {
