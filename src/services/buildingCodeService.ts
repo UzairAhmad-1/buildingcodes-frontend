@@ -1,11 +1,128 @@
+// src/services/buildingCodeService.ts
 import {
   BuildingCodeItem,
   HierarchyNode,
-  DocumentContentResponse,
+  Reference,
 } from "@/types/buildingCode";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-const requestCache = new Map<string, Promise<any>>();
+
+// Define proper interfaces for API responses
+interface DocumentContentResponse {
+  id: number;
+  parent_id: number | null;
+  content_type: string;
+  page_number: number;
+  reference_code: string;
+  title: string;
+  content_text: string;
+  sequence_order: number;
+  pdf_document_id: string;
+  font_family: string;
+  font_size: number;
+  bbox: number[];
+  y_coordinate: number;
+  references?: ContentReference[];
+}
+
+interface ContentReference {
+  id: number;
+  reference_text: string;
+  reference_type: string;
+  target_content_id: number;
+  target_reference_code: string;
+  hyperlink_target: string;
+  hyperlink_text: string;
+  page_number: number;
+  font_family: string;
+  bbox: number[];
+  reference_position: number;
+  target_content?: {
+    id: number;
+    parent_id: number | null;
+    content_type: string;
+    page_number: number;
+    reference_code: string | null;
+    title: string | null;
+    content_text: string | null;
+    sequence_order: number;
+    pdf_document_id: string;
+    font_family: string | null;
+    font_size: number | null;
+    bbox: number[] | null;
+    y_coordinate: number | null;
+    is_definition: boolean;
+    definition_term: string | null;
+  } | null;
+}
+// Updated ContentItem interface to match the API response
+interface ContentItem {
+  id: number;
+  parent_id: number | null;
+  content_type: string;
+  page_number: number;
+  reference_code: string | null;
+  title: string | null;
+  content_text: string | null;
+  sequence_order: number;
+  pdf_document_id: string;
+  font_family: string | null;
+  font_size: number | null;
+  bbox: number[] | null;
+  y_coordinate: number | null;
+  is_definition?: boolean;
+  definition_term?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  references?: Reference[];
+  children?: HierarchyNode[];
+  metadata?: {
+    isLargeContent?: boolean;
+  };
+}
+
+interface SearchResult {
+  id: number;
+  parentId: number | null;
+  contentType: string;
+  pageNumber: number;
+  referenceCode: string;
+  title: string;
+  contentText: string;
+  sequenceOrder: number;
+  pdfDocumentId: string;
+  fontFamily: string;
+  fontSize: number;
+  bbox: number[];
+  yCoordinate: number;
+  document_title: string;
+  jurisdiction_name: string;
+  document_type_name: string;
+  year: number;
+}
+
+interface SearchResponse {
+  results: SearchResult[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+interface ContentReferencesResponse {
+  references: ContentReference[];
+}
+
+interface DocumentNavigationResponse {
+  documentId: string;
+  navigation: HierarchyNode[];
+}
+
+// Simple request cache
+const requestCache = new Map<string, Promise<unknown>>();
+
 export const buildingCodeService = {
   async getHierarchy(): Promise<BuildingCodeItem[]> {
     const response = await fetch(`${API_BASE_URL}/building-code/hierarchy`);
@@ -24,7 +141,7 @@ export const buildingCodeService = {
       limit?: number;
       signal?: AbortSignal;
     }
-  ): Promise<any> {
+  ): Promise<DocumentContentResponse[]> {
     const params = new URLSearchParams();
     if (options?.parentId !== undefined)
       params.append("parentId", options.parentId?.toString() || "null");
@@ -35,7 +152,7 @@ export const buildingCodeService = {
     const cacheKey = `content-${documentId}-${params.toString()}`;
 
     if (requestCache.has(cacheKey)) {
-      return requestCache.get(cacheKey);
+      return requestCache.get(cacheKey) as Promise<DocumentContentResponse[]>;
     }
 
     const promise = fetch(
@@ -45,7 +162,7 @@ export const buildingCodeService = {
       requestCache.delete(cacheKey);
       if (!response.ok) throw new Error("Failed to fetch document content");
       return response.json();
-    });
+    }) as Promise<DocumentContentResponse[]>;
 
     requestCache.set(cacheKey, promise);
     return promise;
@@ -55,19 +172,42 @@ export const buildingCodeService = {
     documentId: string,
     contentId: number,
     signal?: AbortSignal
-  ): Promise<any> {
-    const response = await fetch(
+  ): Promise<ContentItem> {
+    const cacheKey = `content-item-${documentId}-${contentId}`;
+
+    if (requestCache.has(cacheKey)) {
+      return requestCache.get(cacheKey) as Promise<ContentItem>;
+    }
+
+    const promise = fetch(
       `${API_BASE_URL}/pdf-documents/${documentId}/content/${contentId}`,
       { signal }
-    );
-    if (!response.ok) throw new Error("Failed to fetch content item");
-    return response.json();
+    ).then(async (response) => {
+      requestCache.delete(cacheKey);
+      if (!response.ok) throw new Error("Failed to fetch content item");
+      const data = await response.json();
+
+      // Ensure the response has all required fields
+      return {
+        ...data,
+        is_definition: data.is_definition || false,
+        definition_term: data.definition_term || null,
+        created_at: data.created_at || new Date().toISOString(),
+        updated_at: data.updated_at || new Date().toISOString(),
+        references: data.references || [],
+        children: data.children || [],
+        metadata: data.metadata || {},
+      };
+    }) as Promise<ContentItem>;
+
+    requestCache.set(cacheKey, promise);
+    return promise;
   },
 
   async getDocumentNavigation(
     documentId: string,
     signal?: AbortSignal
-  ): Promise<{ documentId: string; navigation: HierarchyNode[] }> {
+  ): Promise<DocumentNavigationResponse> {
     const cacheKey = `navigation-${documentId}`;
 
     const promise = fetch(
@@ -76,7 +216,7 @@ export const buildingCodeService = {
     ).then(async (response) => {
       if (!response.ok) throw new Error("Failed to fetch document navigation");
       return response.json();
-    });
+    }) as Promise<DocumentNavigationResponse>;
 
     return promise;
   },
@@ -89,15 +229,7 @@ export const buildingCodeService = {
       limit?: number;
       signal?: AbortSignal;
     }
-  ): Promise<{
-    results: any[];
-    pagination: {
-      page: number;
-      limit: number;
-      total: number;
-      totalPages: number;
-    };
-  }> {
+  ): Promise<SearchResponse> {
     const params = new URLSearchParams({ q: query });
 
     if (options?.documentId) params.append("documentId", options.documentId);
@@ -116,7 +248,7 @@ export const buildingCodeService = {
     documentId: string,
     contentId: number,
     signal?: AbortSignal
-  ): Promise<any> {
+  ): Promise<ContentReferencesResponse> {
     // Since references are now included in content responses,
     // we can get them from the content item
     const contentItem = await this.getContentItem(

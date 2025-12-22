@@ -6,19 +6,27 @@ import BuildingCodeViewer from "@/components/BuildingCodeViewer";
 import NonScrollableLayout from "@/components/NonScrollableLayout";
 import { libraryService } from "@/services/libraryService";
 
+// Update the PdfDocument interface to match what's returned by the API
 interface PdfDocument {
   id: string;
   title: string;
   year: number;
   version?: string;
-  effective_date: string;
+  effective_date?: string;
   jurisdiction_name: string;
-  jurisdiction_code: string;
+  jurisdiction_code?: string;
   document_type_name: string;
-  language_name: string;
-  language_code: string;
-  file_name: string;
-  processing_status: string;
+  language_name?: string;
+  language_code?: string;
+  file_name?: string;
+  processing_status?: string;
+  // Add any other optional fields that might be returned
+  created_at?: string;
+  updated_at?: string;
+  total_pages?: number;
+  file_size?: number;
+  file_path?: string;
+  thumbnail_url?: string;
 }
 
 interface DocumentViewerProps {

@@ -2,8 +2,104 @@
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 
+// Define interfaces for API response types
+interface ApiSearchResult {
+  id: number;
+  parentId: number | null;
+  contentType: string;
+  pageNumber: number;
+  referenceCode: string;
+  title: string;
+  contentText: string;
+  sequenceOrder: number;
+  pdfDocumentId: string;
+  fontFamily: string;
+  fontSize: number;
+  bbox: number[];
+  yCoordinate: number;
+  document_title: string;
+  jurisdiction_name: string;
+  document_type_name: string;
+  year: number;
+}
+
+interface ConvertedSearchResult {
+  id: number;
+  parent_id: number | null;
+  content_type: string;
+  page_number: number;
+  reference_code: string;
+  title: string;
+  content_text: string;
+  sequence_order: number;
+  pdf_document_id: string;
+  font_family: string;
+  font_size: number;
+  bbox: number[];
+  y_coordinate: number;
+  document_title: string;
+  jurisdiction_name: string;
+  document_type_name: string;
+  year: number;
+}
+
+interface SearchResponse {
+  results: ApiSearchResult[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+interface ConvertedSearchResponse {
+  results: ConvertedSearchResult[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+interface Jurisdiction {
+  id: number;
+  name: string;
+  code: string;
+}
+
+interface DocumentType {
+  id: number;
+  name: string;
+  description: string;
+}
+
+interface Language {
+  id: number;
+  code: string;
+  name: string;
+}
+
+interface PdfDocument {
+  id: string;
+  title: string;
+  year: number;
+  version?: string;
+  effective_date: string;
+  jurisdiction_name: string;
+  jurisdiction_code: string;
+  document_type_name: string;
+  language_name: string;
+  file_name: string;
+  processing_status: string;
+}
+
 class ApiService {
-  private async fetchWithErrorHandling(url: string, options: RequestInit = {}) {
+  private async fetchWithErrorHandling<T>(
+    url: string,
+    options: RequestInit = {}
+  ): Promise<T> {
     try {
       const response = await fetch(url, {
         headers: {
@@ -17,7 +113,7 @@ class ApiService {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      return await response.json();
+      return (await response.json()) as T;
     } catch (error) {
       console.error("API request failed:", error);
       throw error;
@@ -25,7 +121,9 @@ class ApiService {
   }
 
   // Convert camelCase to snake_case for search results
-  private convertSearchResults(results: any[]): any[] {
+  private convertSearchResults(
+    results: ApiSearchResult[]
+  ): ConvertedSearchResult[] {
     return results.map((result) => ({
       id: result.id,
       parent_id: result.parentId,
@@ -47,28 +145,36 @@ class ApiService {
     }));
   }
 
-  async getJurisdictions() {
-    return this.fetchWithErrorHandling(`${API_BASE_URL}/jurisdictions`);
+  async getJurisdictions(): Promise<Jurisdiction[]> {
+    return this.fetchWithErrorHandling<Jurisdiction[]>(
+      `${API_BASE_URL}/jurisdictions`
+    );
   }
 
-  async getDocumentTypes() {
-    return this.fetchWithErrorHandling(`${API_BASE_URL}/document-types`);
+  async getDocumentTypes(): Promise<DocumentType[]> {
+    return this.fetchWithErrorHandling<DocumentType[]>(
+      `${API_BASE_URL}/document-types`
+    );
   }
 
-  async getLanguages() {
-    return this.fetchWithErrorHandling(`${API_BASE_URL}/languages`);
+  async getLanguages(): Promise<Language[]> {
+    return this.fetchWithErrorHandling<Language[]>(`${API_BASE_URL}/languages`);
   }
 
-  async getPdfDocuments() {
-    return this.fetchWithErrorHandling(`${API_BASE_URL}/pdf-documents`);
+  async getPdfDocuments(): Promise<PdfDocument[]> {
+    return this.fetchWithErrorHandling<PdfDocument[]>(
+      `${API_BASE_URL}/pdf-documents`
+    );
   }
 
-  async getPdfDocumentById(id: string) {
-    return this.fetchWithErrorHandling(`${API_BASE_URL}/pdf-documents/${id}`);
+  async getPdfDocumentById(id: string): Promise<PdfDocument> {
+    return this.fetchWithErrorHandling<PdfDocument>(
+      `${API_BASE_URL}/pdf-documents/${id}`
+    );
   }
 
-  async getPdfDocumentContent(id: string) {
-    return this.fetchWithErrorHandling(
+  async getPdfDocumentContent(id: string): Promise<unknown> {
+    return this.fetchWithErrorHandling<unknown>(
       `${API_BASE_URL}/pdf-documents/${id}/content`
     );
   }
@@ -78,7 +184,7 @@ class ApiService {
     documentId?: string,
     page: number = 1,
     limit: number = 10
-  ) {
+  ): Promise<ConvertedSearchResponse> {
     const params = new URLSearchParams({
       q: query,
       page: page.toString(),
@@ -89,7 +195,7 @@ class ApiService {
       params.append("documentId", documentId);
     }
 
-    const response = await this.fetchWithErrorHandling(
+    const response = await this.fetchWithErrorHandling<SearchResponse>(
       `${API_BASE_URL}/search?${params}`
     );
 

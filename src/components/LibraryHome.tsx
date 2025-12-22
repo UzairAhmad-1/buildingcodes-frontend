@@ -1,9 +1,7 @@
 // src/components/LibraryHome.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Search,
-  User,
-  Building,
   Filter,
   Loader2,
   FileText,
@@ -123,44 +121,7 @@ const LibraryHome: React.FC = () => {
     fetchData();
   }, []);
 
-  useEffect(() => {
-    filterDocuments();
-  }, [
-    selectedJurisdiction,
-    selectedDocumentTypes,
-    selectedLanguages,
-    searchTerm,
-    pdfDocuments,
-  ]);
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-
-      const [
-        jurisdictionsRes,
-        documentTypesRes,
-        languagesRes,
-        pdfDocumentsRes,
-      ] = await Promise.all([
-        libraryService.getJurisdictions(),
-        libraryService.getDocumentTypes(),
-        libraryService.getLanguages(),
-        libraryService.getPdfDocuments(),
-      ]);
-
-      setJurisdictions(jurisdictionsRes);
-      setDocumentTypes(documentTypesRes);
-      setLanguages(languagesRes);
-      setPdfDocuments(pdfDocumentsRes);
-    } catch (error) {
-      console.error("Error fetching data:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const filterDocuments = () => {
+  const filterDocuments = useCallback(() => {
     let filtered = pdfDocuments;
 
     // Filter by jurisdiction
@@ -201,6 +162,43 @@ const LibraryHome: React.FC = () => {
     }
 
     setFilteredDocuments(filtered);
+  }, [
+    selectedJurisdiction,
+    selectedDocumentTypes,
+    selectedLanguages,
+    searchTerm,
+    pdfDocuments,
+  ]);
+
+  useEffect(() => {
+    filterDocuments();
+  }, [filterDocuments]);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+
+      const [
+        jurisdictionsRes,
+        documentTypesRes,
+        languagesRes,
+        pdfDocumentsRes,
+      ] = await Promise.all([
+        libraryService.getJurisdictions(),
+        libraryService.getDocumentTypes(),
+        libraryService.getLanguages(),
+        libraryService.getPdfDocuments(),
+      ]);
+
+      setJurisdictions(jurisdictionsRes);
+      setDocumentTypes(documentTypesRes);
+      setLanguages(languagesRes);
+      setPdfDocuments(pdfDocumentsRes);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const toggleDocumentType = (typeName: string) => {
@@ -391,84 +389,6 @@ const LibraryHome: React.FC = () => {
           )
         )}
       </>
-    );
-  };
-
-  // Helper function to render hierarchical path
-  const renderHierarchicalPath = (result: SearchResult) => {
-    const hierarchyLevels = [
-      "division",
-      "part",
-      "section",
-      "subsection",
-      "article",
-      "sentence",
-      "clause",
-      "subclause",
-    ];
-
-    const currentLevelIndex = hierarchyLevels.indexOf(
-      result.content_type.toLowerCase()
-    );
-
-    if (currentLevelIndex === -1) return null;
-
-    // Create breadcrumb-like path showing parent hierarchy
-    const pathElements = [];
-
-    // Add parent levels (you might need to fetch this data from your API)
-    // For now, we'll show a simplified version based on content type
-    if (currentLevelIndex > 0) {
-      pathElements.push(
-        <div
-          key="path"
-          className="flex items-center space-x-1 text-xs text-gray-500 mb-2"
-        >
-          <span>
-            In{" "}
-            {hierarchyLevels.slice(0, currentLevelIndex).map((level) => (
-              <span key={level} className="capitalize">
-                {level} →{" "}
-              </span>
-            ))}
-          </span>
-          <span className="font-medium text-black capitalize">
-            {result.content_type}
-          </span>
-        </div>
-      );
-    }
-
-    return (
-      <div className="mb-3">
-        {pathElements}
-
-        {/* Visual hierarchy indicator */}
-        <div className="flex items-center space-x-2 text-xs text-gray-400">
-          <div className="flex items-center space-x-1">
-            {hierarchyLevels
-              .slice(0, currentLevelIndex + 1)
-              .map((level, index) => (
-                <div
-                  key={level}
-                  className={`flex items-center ${
-                    index === currentLevelIndex
-                      ? "text-black font-medium"
-                      : "text-gray-400"
-                  }`}
-                >
-                  {index > 0 && <span className="mx-1">›</span>}
-                  <span className="capitalize">
-                    {level}
-                    {index === currentLevelIndex && (
-                      <span className="ml-1 w-2 h-2 bg-blue-500 rounded-full inline-block"></span>
-                    )}
-                  </span>
-                </div>
-              ))}
-          </div>
-        </div>
-      </div>
     );
   };
 
@@ -688,7 +608,9 @@ const LibraryHome: React.FC = () => {
                 </h2>
                 {showSearchResults && (
                   <p className="text-sm text-gray-600 mt-1">
-                    Found {searchPagination.total} results for "{searchQuery}"
+                    Found {searchPagination.total} results for &quot;
+                    {searchQuery}
+                    &quot;
                     <button
                       onClick={handleClearSearch}
                       className="ml-2 text-blue-600 hover:text-blue-800 text-sm"
@@ -715,8 +637,8 @@ const LibraryHome: React.FC = () => {
                           No search results found
                         </h3>
                         <p className="text-gray-600">
-                          No documents found for "{searchQuery}". Try different
-                          keywords or adjust your filters.
+                          No documents found for &quot;{searchQuery}&quot;. Try
+                          different keywords or adjust your filters.
                         </p>
                       </div>
                     ) : (
@@ -876,7 +798,7 @@ const LibraryHome: React.FC = () => {
                         </h3>
                         <p className="text-gray-600">
                           Try adjusting your filters or search terms to find
-                          what you're looking for.
+                          what you&apos;re looking for.
                         </p>
                       </div>
                     ) : (

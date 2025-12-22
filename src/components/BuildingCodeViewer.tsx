@@ -6,30 +6,60 @@ import React, {
   useRef,
   useCallback,
 } from "react";
-import { ChevronRight, Search, X, ExternalLink, Menu } from "lucide-react";
-import { HierarchyNode } from "@/types/buildingCode";
+import { ChevronRight, Search, X, Menu } from "lucide-react";
+import {
+  HierarchyNode,
+  Reference as ReferenceType, // Rename imported type
+  ContentType,
+} from "@/types/buildingCode";
 import { buildingCodeService } from "@/services/buildingCodeService";
 import { useSearchParams } from "next/navigation";
 import AnimatedPopup from "@/components/AnimatedPopup";
 
-interface Reference {
+interface HyperlinkText {
+  link_text: string;
+  has_clauses: boolean;
+  full_definition?: {
+    term: string;
+    text: string;
+    page: number;
+    reference_code: string | null;
+    hasDefinitionTerm: boolean;
+  };
+  clauses?: Array<{
+    type: string;
+    title: string;
+    text: string;
+    page: number;
+    reference_code: string | null;
+    references: Array<{
+      text: string;
+      page: number;
+      target_content_id: number;
+      link_text: string | null;
+    }>;
+  }>;
+  clause_count?: number;
+}
+
+interface LocalReference {
   id: number;
   reference_text: string;
   reference_type: string;
   target_content_id: number;
   target_reference_code: string;
   hyperlink_target: string;
-  hyperlink_text: string;
+  hyperlink_text: HyperlinkText;
   page_number: number;
   font_family: string;
   bbox: number[];
   reference_position: number;
-  target_content?: any;
+  target_content?: HierarchyNode;
 }
 
 interface ReferencePopup {
   isOpen: boolean;
-  reference: Reference | null;
+  reference: LocalReference | null;
 }
 
 interface BuildingCodeViewerProps {
@@ -42,13 +72,24 @@ interface BuildingCodeViewerProps {
   };
 }
 
+interface SearchResult {
+  id: number;
+  parentId: number | null;
+  contentType: string;
+  referenceCode?: string;
+  contentText?: string;
+  title?: string;
+  sequenceOrder?: number;
+}
+
 const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   documentId,
   documentInfo,
 }) => {
   const [navigationData, setNavigationData] = useState<HierarchyNode[]>([]);
   const [currentContent, setCurrentContent] = useState<HierarchyNode[]>([]);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchPagination, setSearchPagination] = useState({
     page: 1,
@@ -80,8 +121,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   const [activeChildParent, setActiveChildParent] = useState<number | null>(
     null
   );
-  const searchTimeoutRef = useRef<NodeJS.Timeout>();
-
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const params = useSearchParams();
   const highlightParam = params.get("highlight");
 
@@ -147,12 +187,13 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       }
 
       // For subsection, article, sentence, clause, subclause - find the parent part or section
-      let current = item;
+      let current: HierarchyNode | null = item; // Fix: Explicitly type as HierarchyNode | null
       while (current) {
         if (
           current.content_type === "part" ||
           current.content_type === "section" ||
-          current.content_type === "note_section"
+          current.content_type === "note_section" ||
+          current.content_type === "article" // Fix: Added article to the list
         ) {
           return current.id;
         }
@@ -192,7 +233,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     [currentContent]
   );
 
-  // Helper function to find parent in navigation data
   const findParentInNavigation = (
     nodes: HierarchyNode[],
     parentId: number | null
@@ -292,6 +332,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
   // Load content for specific item
 
+  // Load content for specific item
   const loadContentForItem = useCallback(
     async (contentId: number, preserveHighlight: boolean = false) => {
       if (!documentId) return;
@@ -305,8 +346,32 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           contentId
         );
 
+        // Convert ContentItem to HierarchyNode
+        const hierarchyNode: HierarchyNode = {
+          id: contentItem.id,
+          parent_id: contentItem.parent_id,
+          content_type: contentItem.content_type as ContentType,
+          page_number: contentItem.page_number,
+          reference_code: contentItem.reference_code,
+          title: contentItem.title,
+          content_text: contentItem.content_text,
+          sequence_order: contentItem.sequence_order,
+          pdf_document_id: contentItem.pdf_document_id,
+          font_family: contentItem.font_family,
+          font_size: contentItem.font_size,
+          bbox: contentItem.bbox,
+          y_coordinate: contentItem.y_coordinate,
+          is_definition: contentItem.is_definition || false,
+          definition_term: contentItem.definition_term || null,
+          created_at: contentItem.created_at || new Date().toISOString(),
+          updated_at: contentItem.updated_at || new Date().toISOString(),
+          references: contentItem.references || [],
+          children: contentItem.children || [],
+          metadata: contentItem.metadata || {},
+        };
+
         // Replace current content with the new item (as an array)
-        setCurrentContent([contentItem]);
+        setCurrentContent([hierarchyNode]);
 
         // Only set selected item if we're not preserving a specific highlight
         if (!preserveHighlight) {
@@ -323,7 +388,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             }
           });
         };
-        collectAllIds([contentItem]);
+        collectAllIds([hierarchyNode]);
         setContentExpandedItems(allContentIds);
 
         // Close mobile nav when content is loaded on mobile
@@ -669,28 +734,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     [lastSearchQuery, handleSearch]
   );
 
-  // Handle reference click
-  const handleReferenceClick = useCallback(
-    (reference: Reference) => {
-      if (reference.target_content_id) {
-        // Reset highlight processed state
-        setHighlightProcessed(true);
-
-        setSelectedItem(reference.target_content_id);
-
-        if (isContentAlreadyLoaded(reference.target_content_id)) {
-          console.log("Reference content already loaded, just scrolling");
-          scrollToElement(reference.target_content_id);
-        } else {
-          loadContentForItem(reference.target_content_id).then(() => {
-            setTimeout(() => scrollToElement(reference.target_content_id), 150);
-          });
-        }
-      }
-    },
-    [loadContentForItem, isContentAlreadyLoaded, scrollToElement]
-  );
-
   // Handle "see also" click
   const handleSeeAlsoClick = useCallback(
     (seeAlsoText: string) => {
@@ -727,17 +770,42 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   );
 
   const handleReferenceClickWithPopup = useCallback(
-    (reference: Reference, event: React.MouseEvent) => {
+    (reference: ReferenceType, event: React.MouseEvent) => {
       event.stopPropagation();
+
+      // Handle the hyperlink_text parsing
+      let parsedHyperlinkText: HyperlinkText;
+
+      if (typeof reference.hyperlink_text === "string") {
+        try {
+          parsedHyperlinkText = JSON.parse(reference.hyperlink_text);
+        } catch {
+          // If parsing fails, use the string as link_text
+          parsedHyperlinkText = {
+            link_text: reference.hyperlink_text,
+            has_clauses: false,
+          };
+        }
+      } else {
+        // If it's already an object (shouldn't happen based on your interface)
+        parsedHyperlinkText =
+          reference.hyperlink_text as unknown as HyperlinkText;
+      }
+
+      // Convert ReferenceType to LocalReference
+      const localReference: LocalReference = {
+        ...reference,
+        hyperlink_text: parsedHyperlinkText,
+        target_content: reference.target_content as HierarchyNode | undefined,
+      };
 
       setReferencePopup({
         isOpen: true,
-        reference,
+        reference: localReference,
       });
     },
     []
   );
-
   // Update the popup close function
   const closeReferencePopup = useCallback(() => {
     setReferencePopup({
@@ -748,7 +816,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
   // Function to highlight references in text
   const highlightReferences = useCallback(
-    (text: string, references: Reference[] = []) => {
+    (text: string, references: ReferenceType[] = []) => {
       if (!text || !references || references.length === 0) {
         return <>{text}</>;
       }
@@ -758,7 +826,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       );
 
       let lastIndex = 0;
-      const elements: JSX.Element[] = [];
+      const elements: React.ReactNode[] = []; // Fix: Use React.ReactNode instead of JSX.Element[]
       const textLower = text.toLowerCase();
 
       sortedReferences.forEach((ref, index) => {
@@ -1041,8 +1109,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                           </span>
                         </div>
                       )}
-
-                    
                     </div>
                   );
                 }
@@ -1079,7 +1145,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     },
     [loadContentForItem, scrollToElement]
   );
-  const [hoveredParent, setHoveredParent] = useState(null);
+  const [hoveredParent, setHoveredParent] = useState<number | null>(null);
   // Add this function to find parent article
   const findParentArticle = useCallback(
     (item: HierarchyNode): HierarchyNode | null => {
@@ -1374,9 +1440,13 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         return renderDefinition(item, level);
       }
 
-      if (["note_item", "note_content"].includes(item.content_type)) {
+      if (
+        item.content_type === "note_item" ||
+        item.content_type === "note_content"
+      ) {
         return renderNoteContent(item, level);
       }
+
       if (item.content_type === "see_also") {
         return renderSeeAlsoContent(item);
       }
@@ -1590,7 +1660,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       highlightText,
       highlightReferences,
       renderSeeAlsoContent,
-      renderNoteContent, // Keep this for note_item and note_content
+      renderNoteContent,
       renderDefinition,
       renderClauseContent,
     ]
@@ -1916,13 +1986,22 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               )}
           </div>
 
-          {hasChildren && item.content_type !== "article" && (
-            <div className="ml-1">
-              {item
-                .children!.filter((child) => child.content_type !== "see_also")
-                .map((child) => renderContentItem(child, level + 1))}
-            </div>
-          )}
+          {hasChildren &&
+            ![
+              "article",
+              "note_section",
+              "paragraph",
+              "note_item",
+              "note_content",
+            ].includes(item.content_type) && (
+              <div className="ml-1">
+                {item
+                  .children!.filter(
+                    (child) => child.content_type !== "see_also"
+                  )
+                  .map((child) => renderContentItem(child, level + 1))}
+              </div>
+            )}
         </div>
       );
     },
@@ -2023,124 +2102,176 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     </div>
   );
   // Update the SearchResultsSection component
-  const SearchResultsSection = () => (
-    <aside
-      className={`
+  const SearchResultsSection = () => {
+    // Helper function to convert SearchResult to HierarchyNode
+    const convertSearchResultToHierarchyNode = (
+      result: SearchResult
+    ): HierarchyNode => {
+      // Ensure content_type is a valid ContentType, default to "sentence" if not
+      const validContentTypes: ContentType[] = [
+        "division",
+        "part",
+        "section",
+        "subsection",
+        "article",
+        "sentence",
+        "clause",
+        "subclause",
+        "see_also",
+        "definition",
+        "paragraph",
+        "note_item",
+        "note_section",
+        "note_content",
+      ];
+
+      const contentType = validContentTypes.includes(
+        result.contentType as ContentType
+      )
+        ? (result.contentType as ContentType)
+        : "sentence";
+
+      return {
+        id: result.id,
+        parent_id: result.parentId,
+        content_type: contentType,
+        reference_code: result.referenceCode || null,
+        content_text: result.contentText || null,
+        title: result.title || null,
+        page_number: 0,
+        sequence_order: result.sequenceOrder || 0,
+        pdf_document_id: "",
+        font_family: null,
+        font_size: null,
+        bbox: null,
+        y_coordinate: null,
+        is_definition: false,
+        definition_term: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        references: [],
+        level: 0,
+        path: [],
+        children: [],
+        metadata: {},
+      };
+    };
+
+    return (
+      <aside
+        className={`
       bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-shrink-0
       ${isMobile ? "fixed inset-4 z-40" : "w-1/4"}
     `}
-    >
-      {isMobile && (
-        <div className="bg-gradient-to-r from-blue-50 to-blue-100 px-5 py-4 border-b border-blue-200 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-blue-700 uppercase tracking-wider flex items-center gap-2">
-            <Search size={16} />
-            Search Results
-            <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full ml-1">
-              {searchPagination.total}
-            </span>
-          </h2>
-          <button
-            title="search"
-            onClick={() => {
-              setSearchTerm("");
-              setSearchResults([]);
-              setLastSearchQuery("");
-            }}
-            className="p-1 rounded-lg hover:bg-blue-200 transition-colors"
-          >
-            <X size={18} />
-          </button>
-        </div>
-      )}
-
-      <div className="overflow-y-auto h-full flex flex-col">
-        {/* Search Results List */}
-        <div className="flex-1 p-2">
-          {searchLoading ? (
-            <div className="flex justify-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-            </div>
-          ) : searchResults.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              No results found for "{lastSearchQuery}"
-            </div>
-          ) : (
-            searchResults.map((result) => (
-              <div
-                key={result.id}
-                className={`flex items-center px-3 py-3 cursor-pointer hover:bg-gray-100 rounded-lg mb-1 border-l-4 border-l-transparent ${
-                  selectedItem === result.id
-                    ? "bg-blue-100 !border-l-blue-600"
-                    : ""
-                }`}
-                onClick={() => {
-                  // Reset highlight processed state when user clicks search result
-                  setHighlightProcessed(true);
-
-                  // Create a proper HierarchyNode from the search result
-                  const hierarchyNode: HierarchyNode = {
-                    id: result.id,
-                    parent_id: result.parentId,
-                    content_type: result.contentType,
-                    reference_code: result.referenceCode,
-                    content_text: result.contentText,
-                    title: result.title,
-                    sequence_order: result.sequenceOrder,
-                    children: [],
-                  };
-                  handleNavigationClick(hierarchyNode);
-                }}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="text-base font-medium text-gray-900 line-clamp-1">
-                    {result.referenceCode && (
-                      <span className="font-mono text-base text-black mr-2">
-                        {result.referenceCode}
-                      </span>
-                    )}
-                    {result.contentText?.substring(0, 60)}
-                  </div>
-                  {result.contentText &&
-                    result.contentText !== result.title && (
-                      <div className="text-xs text-gray-600 line-clamp-2 mt-1">
-                        {result.contentText.substring(0, 100) + "..."}
-                      </div>
-                    )}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Pagination Controls */}
-        {searchPagination.totalPages > 1 && (
-          <div className="border-t border-gray-200 p-3 bg-gray-50">
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => handlePageChange(searchPagination.page - 1)}
-                disabled={searchPagination.page <= 1}
-                className="px-3 py-1 text-sm bg-white border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-              >
-                Previous
-              </button>
-
-              <span className="text-sm text-gray-600">
-                Page {searchPagination.page} of {searchPagination.totalPages}
+      >
+        {isMobile && (
+          <div className="bg-gradient-to-r from-blue-50 to-blue-100 px-5 py-4 border-b border-blue-200 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-blue-700 uppercase tracking-wider flex items-center gap-2">
+              <Search size={16} />
+              Search Results
+              <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full ml-1">
+                {searchPagination.total}
               </span>
-
-              <button
-                onClick={() => handlePageChange(searchPagination.page + 1)}
-                disabled={searchPagination.page >= searchPagination.totalPages}
-                className="px-3 py-1 text-sm bg-white border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-              >
-                Next
-              </button>
-            </div>
+            </h2>
+            <button
+              title="search"
+              onClick={() => {
+                setSearchTerm("");
+                setSearchResults([]);
+                setLastSearchQuery("");
+              }}
+              className="p-1 rounded-lg hover:bg-blue-200 transition-colors"
+            >
+              <X size={18} />
+            </button>
           </div>
         )}
-      </div>
-    </aside>
-  );
+
+        <div className="overflow-y-auto h-full flex flex-col">
+          {/* Search Results List */}
+          <div className="flex-1 p-2">
+            {searchLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+              </div>
+            ) : searchResults.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No results found for {'"'}
+                {lastSearchQuery}
+                {'"'}
+              </div>
+            ) : (
+              searchResults.map((result) => (
+                <div
+                  key={result.id}
+                  className={`flex items-center px-3 py-3 cursor-pointer hover:bg-gray-100 rounded-lg mb-1 border-l-4 border-l-transparent ${
+                    selectedItem === result.id
+                      ? "bg-blue-100 !border-l-blue-600"
+                      : ""
+                  }`}
+                  onClick={() => {
+                    // Reset highlight processed state when user clicks search result
+                    setHighlightProcessed(true);
+
+                    // Convert search result to HierarchyNode
+                    const hierarchyNode =
+                      convertSearchResultToHierarchyNode(result);
+                    handleNavigationClick(hierarchyNode);
+                  }}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-base font-medium text-gray-900 line-clamp-1">
+                      {result.referenceCode && (
+                        <span className="font-mono text-base text-black mr-2">
+                          {result.referenceCode}
+                        </span>
+                      )}
+                      {result.contentText?.substring(0, 60)}
+                    </div>
+                    {result.contentText &&
+                      result.contentText !== result.title && (
+                        <div className="text-xs text-gray-600 line-clamp-2 mt-1">
+                          {result.contentText.substring(0, 100) + "..."}
+                        </div>
+                      )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Pagination Controls */}
+          {searchPagination.totalPages > 1 && (
+            <div className="border-t border-gray-200 p-3 bg-gray-50">
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => handlePageChange(searchPagination.page - 1)}
+                  disabled={searchPagination.page <= 1}
+                  className="px-3 py-1 text-sm bg-white border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Previous
+                </button>
+
+                <span className="text-sm text-gray-600">
+                  Page {searchPagination.page} of {searchPagination.totalPages}
+                </span>
+
+                <button
+                  onClick={() => handlePageChange(searchPagination.page + 1)}
+                  disabled={
+                    searchPagination.page >= searchPagination.totalPages
+                  }
+                  className="px-3 py-1 text-sm bg-white border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </aside>
+    );
+  };
 
   // Update the main content area to show search info
   const SearchInfoHeader = () => (
@@ -2148,8 +2279,11 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">
-            Search Results for "{lastSearchQuery}"
+            Search Results for {'"'}
+            {lastSearchQuery}
+            {'"'}
           </h2>
+
           <p className="text-sm text-gray-600 mt-1">
             Found {searchPagination.total} matching items
             {searchPagination.totalPages > 1 &&
@@ -2212,7 +2346,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     <div className="h-screen flex flex-col bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Mobile Navigation Overlay */}
       <MobileNavOverlay />
-
       {/* Header */}
       <header className="bg-white border-b border-gray-200 shadow-sm flex-shrink-0">
         <div className="max-w-[1800px] mx-auto px-4 md:px-8 py-2">
@@ -2240,7 +2373,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           </div>
         </div>
       </header>
-
       {/* Main Content Area */}
       <div
         className={`flex-1 flex overflow-hidden max-w-[1800px] mx-auto w-full px-3 md:px-6 py-2 gap-4 md:gap-6`}
@@ -2298,9 +2430,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           </div>
         </main>
       </div>
-
       <footer className="bg-white border-t border-gray-200 py-11 flex-shrink-0"></footer>
-
+      // In the BuildingCodeViewer component where you render AnimatedPopup:
       {referencePopup.isOpen && referencePopup.reference && (
         <AnimatedPopup
           isOpen={referencePopup.isOpen}
@@ -2308,24 +2439,19 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           title={referencePopup.reference.reference_text}
           maxWidth="max-w-2xl"
           copyText={
-            referencePopup.reference.hyperlink_text ||
+            referencePopup.reference.hyperlink_text?.link_text ||
             referencePopup.reference.target_content?.content_text ||
             "Definition not available"
           }
+          hyperlinkText={referencePopup.reference.hyperlink_text} // Pass the hyperlink_text object
         >
-          {referencePopup.reference.hyperlink_text ? (
-            <div className="text-base text-gray-700 leading-relaxed bg-gray-50 p-4 rounded-lg">
-              {referencePopup.reference.hyperlink_text}
-            </div>
-          ) : referencePopup.reference.target_content ? (
-            <div className="text-base text-gray-700 leading-relaxed bg-gray-50 p-4 rounded-lg">
-              {referencePopup.reference.target_content.content_text}
-            </div>
-          ) : (
-            <div className="text-base text-gray-500 italic bg-gray-50 p-4 rounded-lg">
-              Definition not available
-            </div>
-          )}
+          {/* Children can still be used as fallback */}
+          {!referencePopup.reference.hyperlink_text &&
+            referencePopup.reference.hyperlink_text && (
+              <div className="text-base text-gray-700 leading-relaxed bg-gray-50 p-4 rounded-lg">
+                {referencePopup.reference.hyperlink_text}
+              </div>
+            )}
         </AnimatedPopup>
       )}
     </div>
