@@ -1042,16 +1042,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                         </div>
                       )}
 
-                      {child.content_text && (
-                        <div className="ml-4">
-                          {searchTerm
-                            ? highlightText(child.content_text, searchTerm)
-                            : highlightReferences(
-                                child.content_text,
-                                child.references || []
-                              )}
-                        </div>
-                      )}
+                    
                     </div>
                   );
                 }
