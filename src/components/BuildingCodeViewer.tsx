@@ -2431,7 +2431,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         </main>
       </div>
       <footer className="bg-white border-t border-gray-200 py-11 flex-shrink-0"></footer>
-      // In the BuildingCodeViewer component where you render AnimatedPopup:
+      {/* In the BuildingCodeViewer component where you render AnimatedPopup: */}
       {referencePopup.isOpen && referencePopup.reference && (
         <AnimatedPopup
           isOpen={referencePopup.isOpen}
