@@ -12,7 +12,9 @@ export type ContentType =
   | "paragraph"
   | "note_item"
   | "note_section"
-  | "note_content";
+  | "note_content"
+  | "list_item"
+  | "image";
 export interface Reference {
   id: number;
   reference_text: string;
@@ -64,6 +66,10 @@ export interface BuildingCodeItem {
   y_coordinate: number | null;
   is_definition: boolean;
   definition_term: string | null;
+  imageData?: string | null;
+  imageFormat?: string | null;
+  imageWidth?: number | null;
+  imageHeight?: number | null;
   created_at: string;
   updated_at: string;
   references: Reference[];

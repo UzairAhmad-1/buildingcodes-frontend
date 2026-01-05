@@ -950,11 +950,11 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       subclause: { text: "text-xs text-black font-normal" },
       see_also: { text: "text-xs text-blue-600 underline cursor-pointer" },
       definition: { text: "text-sm text-black font-normal" },
+      list_item: { text: "text-sm text-black font-normal" }, // Add this
     };
 
     return styles[type] || { text: "text-xs text-black font-normal" };
   };
-
   const renderNavigationItem = useCallback(
     (item: HierarchyNode, level: number = 0) => {
       const hasChildren = item.children && item.children.length > 0;
@@ -1198,6 +1198,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             onMouseLeave={() => setHoveredItem(null)}
             onClick={() => setSelectedItem(item.id)}
           >
+            {/* Note Item Title */}
             <div className="flex items-start gap-2 mb-2">
               {item.reference_code && (
                 <span className="font-medium shrink-0">
@@ -1214,32 +1215,125 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             </div>
 
             {hasChildren && (
-              <div className="space-y-2">
-                {item.children!.map((child) =>
-                  // Remove hover/click handlers from note_content since parent handles it
-                  child.content_type === "note_content" ? (
-                    <div
-                      key={child.id}
-                      ref={(el) => {
-                        contentRefs.current[child.id] = el;
-                      }}
-                      className="text-gray-700 leading-relaxed p-2 rounded"
-                    >
-                      {child.content_text && (
-                        <div className="break-words">
-                          {searchTerm
-                            ? highlightText(child.content_text, searchTerm)
-                            : highlightReferences(
-                                child.content_text,
-                                child.references || []
-                              )}
+              <div className="space-y-4">
+                {item.children!.map((child) => {
+                  // Handle note_content
+                  if (child.content_type === "note_content") {
+                    return (
+                      <div
+                        key={child.id}
+                        ref={(el) => {
+                          contentRefs.current[child.id] = el;
+                        }}
+                        className="text-gray-700 leading-relaxed p-2 rounded"
+                      >
+                        {child.content_text && (
+                          <div className="break-words">
+                            {searchTerm
+                              ? highlightText(child.content_text, searchTerm)
+                              : highlightReferences(
+                                  child.content_text,
+                                  child.references || []
+                                )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // Handle images within note content
+                  if (child.content_type === "image") {
+                    const isChildHighlighted = selectedItem === child.id;
+                    const isChildHovered = hoveredItem === child.id;
+
+                    return (
+                      <div key={child.id} className="mb-8">
+                        <div
+                          ref={(el) => {
+                            contentRefs.current[child.id] = el;
+                          }}
+                          className="p-4 rounded-lg flex flex-col items-center justify-center"
+                          onMouseEnter={(e) => {
+                            e.stopPropagation();
+                            setHoveredItem(child.id);
+                          }}
+                          onMouseLeave={(e) => {
+                            e.stopPropagation();
+                            setHoveredItem(null);
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedItem(child.id);
+                          }}
+                        >
+                          {/* Image Reference Code and Title - Centered black text */}
+                          <div className="text-center mb-1">
+                            {child.reference_code && (
+                              <div className="text-black text-[1.2em] font-semibold ">
+                                {child.reference_code}
+                              </div>
+                            )}
+                            {child.content_text && (
+                              <div className="text-black text-[1.2em] font-semibold ">
+                                {child.content_text}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Image Display */}
+                          {child.imageData && (
+                            <div className="flex justify-center items-center w-full">
+                              <img
+                                src={renderImageData(
+                                  child.imageData,
+                                  child.imageFormat || "png"
+                                )}
+                                alt={
+                                  child.content_text ||
+                                  child.reference_code ||
+                                  "Figure"
+                                }
+                                style={{
+                                  width: child.imageWidth
+                                    ? `${child.imageWidth}px`
+                                    : "auto",
+                                  height: child.imageHeight
+                                    ? `${child.imageHeight}px`
+                                    : "auto",
+                                  maxWidth: "100%",
+                                  
+                                }}
+                                className="mx-auto"
+                                onError={(e) => {
+                                  console.error(
+                                    "Failed to load image in note:",
+                                    {
+                                      reference_code: child.reference_code,
+                                      imageDataLength: child.imageData?.length,
+                                      format: child.imageFormat,
+                                    }
+                                  );
+                                  (e.target as HTMLImageElement).style.display =
+                                    "none";
+                                }}
+                              />
+                            </div>
+                          )}
+
+                          {/* Optional: Add a fallback if image fails to load */}
+                          {!child.imageData && (
+                            <div className="text-center text-gray-500 italic my-8">
+                              [Image not available]
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  ) : (
-                    renderNoteContent(child, level + 1)
-                  )
-                )}
+                      </div>
+                    );
+                  }
+
+                  // Handle other children types
+                  return renderNoteContent(child, level + 1);
+                })}
               </div>
             )}
           </div>
@@ -1274,7 +1368,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     },
     [selectedItem, hoveredItem, searchTerm, highlightText, highlightReferences]
   );
-
   const renderClauseContent = useCallback(
     (item: HierarchyNode, level: number = 0) => {
       if (item.content_type === "see_also") {
@@ -1431,11 +1524,271 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       renderDefinition,
     ]
   );
+  const renderListItems = useCallback(
+    (items: HierarchyNode[], parentItem?: HierarchyNode) => {
+      if (!items || items.length === 0) return null;
 
+      return (
+        <div className="grid grid-cols-1">
+          {items.map((item) => {
+            const isHighlighted = selectedItem === item.id;
+            const isHovered = hoveredItem === item.id;
+            const isParentHovered = hoveredParent === parentItem?.id;
+
+            return (
+              <div
+                key={item.id}
+                ref={(el) => {
+                  contentRefs.current[item.id] = el;
+                }}
+                className={`p-1 transition-colors duration-200 ${
+                  isHovered || isParentHovered ? "" : ""
+                }`}
+                onMouseEnter={() => {
+                  setHoveredItem(item.id);
+                  // Set the parent as hovered when hovering over list item
+                  if (parentItem) {
+                    setHoveredParent(parentItem.id);
+                  }
+                }}
+                onMouseLeave={() => {
+                  setHoveredItem(null);
+                  // Only clear parent hover if not hovering over any list items
+                  setTimeout(() => {
+                    if (!hoveredItem && !isParentHovered) {
+                      setHoveredParent(null);
+                    }
+                  }, 100);
+                }}
+                onClick={() => setSelectedItem(item.id)}
+              >
+                <div className="grid grid-cols-[100px_1fr] items-start ml-10">
+                  {/* Abbreviation / Reference Code */}
+                  <div className="font-medium text-black text-sm">
+                    {item.reference_code}
+                  </div>
+
+                  {/* Description / Content */}
+                  <div className="text-black text-sm">
+                    {searchTerm
+                      ? highlightText(item.content_text || "", searchTerm)
+                      : highlightReferences(
+                          item.content_text || "",
+                          item.references || []
+                        )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    },
+    [
+      selectedItem,
+      hoveredItem,
+      hoveredParent,
+      searchTerm,
+      highlightText,
+      highlightReferences,
+    ]
+  );
   const renderArticleChild = useCallback(
     (item: HierarchyNode, level: number = 0, parentItem?: HierarchyNode) => {
       const hasChildren = item.children && item.children.length > 0;
 
+      // Handle list_item type
+      if (item.content_type === "list_item") {
+        // If this is a list_item inside a sentence with siblings, render in grid
+        const siblings = parentItem?.children || [];
+        const listItems = siblings.filter(
+          (child) => child.content_type === "list_item"
+        );
+
+        // Only render if this is the first list_item in the group
+        const isFirstListItem = listItems[0]?.id === item.id;
+
+        if (isFirstListItem && listItems.length > 0) {
+          return (
+            <div key={`list-group-${item.id}`} className="mt-2">
+              {renderListItems(listItems, parentItem)}
+            </div>
+          );
+        }
+
+        // For individual list_items not in a grid (shouldn't happen with your data structure)
+        return null;
+      }
+
+      // In the renderArticleChild function, update the sentence with list items section:
+      if (item.content_type === "sentence" && hasChildren) {
+        const hasListItems = item.children!.some(
+          (child) => child.content_type === "list_item"
+        );
+
+        if (hasListItems) {
+          const listItems = item.children!.filter(
+            (child) => child.content_type === "list_item"
+          );
+          const otherChildren = item.children!.filter(
+            (child) => child.content_type !== "list_item"
+          );
+
+          const isHighlighted = selectedItem === item.id;
+          const isHovered = hoveredItem === item.id;
+          const isParentHovered = hoveredParent === item.id; // Add this
+
+          return (
+            <div
+              key={item.id}
+              ref={(el) => {
+                contentRefs.current[item.id] = el;
+              }}
+              className={`p-3 rounded border border-transparent border-l-4 border-l-transparent mb-0 transition-all duration-200
+          ${
+            activeChildParent === item.id
+              ? "bg-gray-200 !border-gray-700 !border-l-black"
+              : isHighlighted || isParentHovered // Add isParentHovered here
+              ? "bg-gray-200 !border-gray-700 !border-l-blue-600 "
+              : isHovered
+              ? "bg-gray-200 !border-gray-700 !border-l-blue-500"
+              : ""
+          }`}
+              onMouseEnter={() => {
+                setHoveredItem(item.id);
+              }}
+              onMouseLeave={() => {
+                setHoveredItem(null);
+                // Clear parent hover when leaving the entire sentence area
+                if (hoveredParent === item.id) {
+                  setHoveredParent(null);
+                }
+              }}
+              onClick={() => setSelectedItem(item.id)}
+            >
+              {/* Render the sentence content */}
+              {(item.reference_code || item.content_text) && (
+                <div className="text-gray-700 leading-relaxed mb-3">
+                  <div className="flex flex-wrap items-start gap-2">
+                    {item.reference_code && (
+                      <span className="font-medium">{item.reference_code}</span>
+                    )}
+                    {item.content_text && (
+                      <span className="break-words flex-1">
+                        {searchTerm
+                          ? highlightText(item.content_text, searchTerm)
+                          : highlightReferences(
+                              item.content_text,
+                              item.references || []
+                            )}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Render the list items */}
+              <div className="mt-3">{renderListItems(listItems, item)}</div>
+
+              {/* Render other children if any */}
+              {otherChildren.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {otherChildren.map((child) => {
+                    if (child.content_type === "see_also") {
+                      return renderSeeAlsoContent(child);
+                    }
+                    if (child.content_type === "definition") {
+                      return renderDefinition(child);
+                    }
+                    return renderArticleChild(child, level + 1, item);
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        }
+      }
+
+      // Check if this item has list_item children (general case)
+      if (
+        hasChildren &&
+        item.children!.some((child) => child.content_type === "list_item")
+      ) {
+        const listItems = item.children!.filter(
+          (child) => child.content_type === "list_item"
+        );
+        const otherChildren = item.children!.filter(
+          (child) => child.content_type !== "list_item"
+        );
+
+        const isHighlighted = selectedItem === item.id;
+        const isHovered = hoveredItem === item.id;
+
+        return (
+          <div
+            key={item.id}
+            ref={(el) => {
+              contentRefs.current[item.id] = el;
+            }}
+            className={`p-3 rounded border border-transparent border-l-4 border-l-transparent mb-0
+            ${
+              isHighlighted
+                ? "bg-blue-50 !border-blue-300 !border-l-blue-600 shadow-sm"
+                : isHovered
+                ? "bg-gray-200 !border-gray-700 !border-l-blue-500"
+                : ""
+            }`}
+            onMouseEnter={() => {
+              setHoveredItem(item.id);
+            }}
+            onMouseLeave={() => {
+              setHoveredItem(null);
+            }}
+            onClick={() => setSelectedItem(item.id)}
+          >
+            {/* Render the item content */}
+            {(item.reference_code || item.content_text) && (
+              <div className="text-gray-700 leading-relaxed mb-3">
+                <div className="flex flex-wrap items-start gap-2">
+                  {item.reference_code && (
+                    <span className="font-medium">{item.reference_code}</span>
+                  )}
+                  {item.content_text && (
+                    <span className="break-words flex-1">
+                      {searchTerm
+                        ? highlightText(item.content_text, searchTerm)
+                        : highlightReferences(
+                            item.content_text,
+                            item.references || []
+                          )}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Render the list items */}
+            <div className="mt-3">{renderListItems(listItems, item)}</div>
+
+            {/* Render other children if any */}
+            {otherChildren.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {otherChildren.map((child) => {
+                  if (child.content_type === "see_also") {
+                    return renderSeeAlsoContent(child);
+                  }
+                  if (child.content_type === "definition") {
+                    return renderDefinition(child);
+                  }
+                  return renderArticleChild(child, level + 1, item);
+                })}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // Rest of your existing renderArticleChild logic for other content types...
       if (item.content_type === "definition") {
         return renderDefinition(item, level);
       }
@@ -1468,18 +1821,15 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               contentRefs.current[item.id] = el;
             }}
             className={`p-3 rounded border border-transparent border-l-4 border-l-transparent mb-0
-    ${
-      activeChildParent === item.id
-        ? // CHILD HOVER → keep normal hover style but override left border
-          "bg-gray-200 !border-gray-300 !border-l-black"
-        : isHighlighted
-        ? // SELECTED
-          "bg-blue-50 !border-blue-300 !border-l-blue-600 shadow-sm"
-        : isHovered
-        ? // NORMAL HOVER
-          "bg-gray-200 !border-gray-300 !border-l-blue-500"
-        : ""
-    }`}
+            ${
+              activeChildParent === item.id
+                ? "bg-gray-200 !border-gray-300 !border-l-black"
+                : isHighlighted
+                ? "bg-blue-50 !border-blue-300 !border-l-blue-600 shadow-sm"
+                : isHovered
+                ? "bg-gray-200 !border-gray-300 !border-l-blue-500"
+                : ""
+            }`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
             onClick={() => setSelectedItem(item.id)}
@@ -1531,15 +1881,15 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               contentRefs.current[item.id] = el;
             }}
             className={`p-3 rounded border border-transparent border-l-4 border-l-transparent mb-0
-          ${
-            activeChildParent === item.id
-              ? "bg-gray-200 !border-gray-700 !border-l-black"
-              : isHighlighted
-              ? "bg-blue-50 !border-blue-300 !border-l-blue-600 shadow-sm"
-              : isHovered
-              ? "bg-gray-200 !border-gray-700 !border-l-blue-500"
-              : ""
-          }`}
+            ${
+              activeChildParent === item.id
+                ? "bg-gray-200 !border-gray-700 !border-l-black"
+                : isHighlighted
+                ? "bg-blue-50 !border-blue-300 !border-l-blue-600 shadow-sm"
+                : isHovered
+                ? "bg-gray-200 !border-gray-700 !border-l-blue-500"
+                : ""
+            }`}
             onMouseEnter={() => {
               setHoveredItem(item.id);
               if (parentArticle) {
@@ -1663,9 +2013,29 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       renderNoteContent,
       renderDefinition,
       renderClauseContent,
+      renderListItems,
     ]
   );
+  const renderImageData = (base64Data: string, format: string): string => {
+    // The imageData might already be a complete data URL, so check first
+    if (base64Data.startsWith("data:image/")) {
+      return base64Data;
+    }
 
+    // If it's just base64, construct the data URL
+    // Remove any whitespace or newlines from the base64 string
+    const cleanBase64 = base64Data.replace(/\s/g, "");
+
+    // Handle different image formats
+    const mimeType =
+      format.toLowerCase() === "png"
+        ? "png"
+        : format.toLowerCase() === "jpg" || format.toLowerCase() === "jpeg"
+        ? "jpeg"
+        : format.toLowerCase();
+
+    return `data:image/${mimeType};base64,${cleanBase64}`;
+  };
   // Content item renderer
   const renderContentItem = useCallback(
     (item: HierarchyNode, level: number = 0) => {
@@ -1753,6 +2123,90 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                 ))}
               </div>
             )}
+          </div>
+        );
+      }
+      if (item.content_type === "image") {
+        const isHighlighted = selectedItem === item.id;
+        const isHovered = hoveredItem === item.id;
+
+        return (
+          <div key={item.id} className="mb-8">
+            <div
+              ref={(el) => {
+                contentRefs.current[item.id] = el;
+              }}
+              className={`p-4 rounded-lg flex flex-col items-center justify-center ${
+                isHighlighted
+                  ? "bg-blue-50 border-blue-300 shadow-sm"
+                  : isHovered
+                  ? "bg-gray-200 border-gray-300 shadow-sm"
+                  : ""
+              }`}
+              onMouseEnter={() => setHoveredItem(item.id)}
+              onMouseLeave={() => setHoveredItem(null)}
+              onClick={() => setSelectedItem(item.id)}
+            >
+              {/* Image Reference Code and Title - Centered black text */}
+              <div className="text-center mb-4">
+                {item.reference_code && (
+                  <div className="text-black text-[1.2em] font-semibold mb-2">
+                    {item.reference_code}
+                  </div>
+                )}
+                {item.content_text && (
+                  <div className="text-black text-[1.2em]">
+                    {item.content_text}
+                  </div>
+                )}
+              </div>
+
+              {/* Image Display */}
+              {item.imageData && (
+                <div className="flex justify-center items-center my-4 w-full">
+                  <img
+                    src={renderImageData(
+                      item.imageData,
+                      item.imageFormat || "png"
+                    )}
+                    alt={item.content_text || item.reference_code || "Figure"}
+                    style={{
+                      width: item.imageWidth ? `${item.imageWidth}px` : "auto",
+                      height: item.imageHeight
+                        ? `${item.imageHeight}px`
+                        : "auto",
+                      maxWidth: "100%",
+                      height: "auto",
+                    }}
+                    className="mx-auto"
+                    onError={(e) => {
+                      console.error("Failed to load image:", {
+                        imageData: item.imageData
+                          ? item.imageData.substring(0, 100) + "..."
+                          : "null",
+                        format: item.imageFormat,
+                        width: item.imageWidth,
+                        height: item.imageHeight,
+                      });
+                      (e.target as HTMLImageElement).style.display = "none";
+                    }}
+                    onLoad={(e) => {
+                      console.log("Image loaded successfully:", {
+                        width: (e.target as HTMLImageElement).naturalWidth,
+                        height: (e.target as HTMLImageElement).naturalHeight,
+                      });
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Optional: Add a fallback if image fails to load */}
+              {!item.imageData && (
+                <div className="text-center text-gray-500 italic my-8">
+                  [Image not available]
+                </div>
+              )}
+            </div>
           </div>
         );
       }
@@ -1867,7 +2321,30 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           </div>
         );
       }
+      if (item.content_type === "list_item") {
+        // Find parent to render list items in a grid
+        const parentItem = findItemInNavigation(
+          navigationData,
+          item.parent_id || 0
+        );
+        const siblings = parentItem?.children || [];
+        const listItems = siblings.filter(
+          (child) => child.content_type === "list_item"
+        );
 
+        // Only render if this is the first list_item in the group
+        const isFirstListItem = listItems[0]?.id === item.id;
+
+        if (isFirstListItem && listItems.length > 0) {
+          return (
+            <div key={`list-group-${item.id}`} className="mt-2 mb-4">
+              {renderListItems(listItems, parentItem)}
+            </div>
+          );
+        }
+
+        return null;
+      }
       // Regular content handling for other types
       const hasChildren = item.children && item.children.length > 0;
       const isHighlighted = selectedItem === item.id;
