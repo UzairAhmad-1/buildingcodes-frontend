@@ -76,7 +76,7 @@ const AnimatedPopup: React.FC<AnimatedPopupProps> = ({
   ) => {
     if (!references || references.length === 0) return <span>{text}</span>;
 
-    let result: React.ReactNode[] = [];
+    const result: React.ReactNode[] = [];
     let lastIndex = 0;
 
     references.forEach((ref, idx) => {
