@@ -1201,12 +1201,12 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             {/* Note Item Title */}
             <div className="flex items-start gap-2 mb-2">
               {item.reference_code && (
-                <span className="font-medium shrink-0">
+                <span className="font-bold shrink-0">
                   {item.reference_code}
                 </span>
               )}
               {item.content_text && (
-                <span className="text-gray-800 font-medium">
+                <span className=" font-bold">
                   {searchTerm
                     ? highlightText(item.content_text, searchTerm)
                     : item.content_text}
@@ -1301,7 +1301,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                                     ? `${child.imageHeight}px`
                                     : "auto",
                                   maxWidth: "100%",
-                                  
                                 }}
                                 className="mx-auto"
                                 onError={(e) => {
