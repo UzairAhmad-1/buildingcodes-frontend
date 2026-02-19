@@ -14,7 +14,8 @@ export type ContentType =
   | "note_section"
   | "note_content"
   | "list_item"
-  | "image";
+  | "image"
+  | "table";
 export interface Reference {
   id: number;
   reference_text: string;
@@ -70,6 +71,7 @@ export interface BuildingCodeItem {
   imageFormat?: string | null;
   imageWidth?: number | null;
   imageHeight?: number | null;
+  tableHtml?: string | null;
   created_at: string;
   updated_at: string;
   references: Reference[];

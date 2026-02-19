@@ -111,7 +111,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     Set<number>
   >(new Set());
   const [contentExpandedItems, setContentExpandedItems] = useState<Set<number>>(
-    new Set()
+    new Set(),
   );
   const [referencePopup, setReferencePopup] = useState<ReferencePopup>({
     isOpen: false,
@@ -119,7 +119,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   });
 
   const [activeChildParent, setActiveChildParent] = useState<number | null>(
-    null
+    null,
   );
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const params = useSearchParams();
@@ -165,7 +165,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
       return checkInContent(currentContent);
     },
-    [currentContent]
+    [currentContent],
   );
 
   // Find parent content ID based on item type
@@ -180,7 +180,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       // For division, part, section, note_section - load the item itself
       if (
         ["division", "part", "section", "note_section"].includes(
-          item.content_type
+          item.content_type,
         )
       ) {
         return item.id;
@@ -204,7 +204,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       // Fallback to the item itself
       return item.id;
     },
-    [navigationData, currentContent]
+    [navigationData, currentContent],
   );
 
   // Helper function to find parent in current content
@@ -212,7 +212,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     (childId: number): HierarchyNode | null => {
       const findParent = (
         nodes: HierarchyNode[],
-        targetId: number
+        targetId: number,
       ): HierarchyNode | null => {
         for (const node of nodes) {
           if (node.children) {
@@ -230,12 +230,12 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
       return findParent(currentContent, childId);
     },
-    [currentContent]
+    [currentContent],
   );
 
   const findParentInNavigation = (
     nodes: HierarchyNode[],
-    parentId: number | null
+    parentId: number | null,
   ): HierarchyNode | null => {
     for (const node of nodes) {
       if (node.id === parentId) {
@@ -263,7 +263,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       }
       return null;
     },
-    []
+    [],
   );
 
   // Main data fetching - only navigation
@@ -282,21 +282,21 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         const navigationResponse =
           await buildingCodeService.getDocumentNavigation(
             documentId,
-            abortController.signal
+            abortController.signal,
           );
 
         if (!isMounted) return;
 
         console.log(
           "Navigation data received:",
-          navigationResponse.navigation.length
+          navigationResponse.navigation.length,
         );
         setNavigationData(navigationResponse.navigation);
 
         // Auto-expand first level items in navigation
         const firstLevelIds = new Set<number>();
         navigationResponse.navigation.forEach((item) =>
-          firstLevelIds.add(item.id)
+          firstLevelIds.add(item.id),
         );
         setNavigationExpandedItems(firstLevelIds);
 
@@ -343,7 +343,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
         const contentItem = await buildingCodeService.getContentItem(
           documentId,
-          contentId
+          contentId,
         );
 
         // Convert ContentItem to HierarchyNode
@@ -401,7 +401,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         setContentLoading(false);
       }
     },
-    [documentId, isMobile]
+    [documentId, isMobile],
   );
 
   // Scroll to element without affecting layout
@@ -436,7 +436,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         // Get the content item to understand its structure
         const contentItem = await buildingCodeService.getContentItem(
           documentId,
-          contentId
+          contentId,
         );
 
         if (!contentItem) return null;
@@ -446,7 +446,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         // For different content types, find the appropriate parent
         if (
           ["division", "part", "section", "note_section"].includes(
-            contentItem.content_type
+            contentItem.content_type,
           )
         ) {
           return contentItem.id; // These can be loaded directly
@@ -461,7 +461,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           if (current.parent_id) {
             const parent = await buildingCodeService.getContentItem(
               documentId,
-              current.parent_id
+              current.parent_id,
             );
             if (parent) {
               // Check if this parent is a suitable level to load
@@ -477,7 +477,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                 console.log(
                   "Found suitable parent:",
                   parent.id,
-                  parent.content_type
+                  parent.content_type,
                 );
                 return parent.id;
               }
@@ -494,7 +494,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         // Fallback: try to find in navigation
         const findInNavigation = (
           nodes: HierarchyNode[],
-          targetId: number
+          targetId: number,
         ): HierarchyNode | null => {
           for (const node of nodes) {
             if (node.id === targetId) {
@@ -512,7 +512,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         if (navItem) {
           console.log(
             "Found in navigation, using parent content ID:",
-            findParentContentId(navItem)
+            findParentContentId(navItem),
           );
           return findParentContentId(navItem);
         }
@@ -523,7 +523,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         return null;
       }
     },
-    [documentId, navigationData, findParentContentId]
+    [documentId, navigationData, findParentContentId],
   );
 
   const [highlightProcessed, setHighlightProcessed] = useState(false);
@@ -551,7 +551,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         // If not in current content, we need to find which parent section contains this item
         console.log(
           "Searching for parent section of highlighted item:",
-          contentId
+          contentId,
         );
 
         // Use the service to find the parent content ID
@@ -631,7 +631,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
       console.log(
         "Is content already loaded?",
-        isContentAlreadyLoaded(item.id)
+        isContentAlreadyLoaded(item.id),
       );
 
       // Always set the selected item for navigation
@@ -658,7 +658,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       isContentAlreadyLoaded,
       scrollToElement,
       findParentInCurrentContent,
-    ]
+    ],
   );
 
   // Toggle navigation expansion
@@ -676,7 +676,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         return newExpanded;
       });
     },
-    []
+    [],
   );
 
   const handleSearch = useCallback(
@@ -714,7 +714,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         setSearchLoading(false);
       }
     },
-    [documentId]
+    [documentId],
   );
 
   // Add a new function to handle search submission (on Enter key or search icon click)
@@ -731,7 +731,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         handleSearch(lastSearchQuery, newPage);
       }
     },
-    [lastSearchQuery, handleSearch]
+    [lastSearchQuery, handleSearch],
   );
 
   // Handle "see also" click
@@ -766,7 +766,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         }
       }
     },
-    [navigationData, handleNavigationClick]
+    [navigationData, handleNavigationClick],
   );
 
   const handleReferenceClickWithPopup = useCallback(
@@ -804,7 +804,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         reference: localReference,
       });
     },
-    []
+    [],
   );
   // Update the popup close function
   const closeReferencePopup = useCallback(() => {
@@ -822,7 +822,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       }
 
       const sortedReferences = [...references].sort(
-        (a, b) => a.reference_position - b.reference_position
+        (a, b) => a.reference_position - b.reference_position,
       );
 
       let lastIndex = 0;
@@ -840,7 +840,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             elements.push(
               <span key={`text-${index}`}>
                 {text.substring(lastIndex, refIndex)}
-              </span>
+              </span>,
             );
           }
 
@@ -852,7 +852,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               onClick={(e) => handleReferenceClickWithPopup(ref, e)}
             >
               {text.substring(refIndex, refIndex + refText.length)}
-            </span>
+            </span>,
           );
 
           lastIndex = refIndex + refText.length;
@@ -861,13 +861,13 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
       if (lastIndex < text.length) {
         elements.push(
-          <span key="text-final">{text.substring(lastIndex)}</span>
+          <span key="text-final">{text.substring(lastIndex)}</span>,
         );
       }
 
       return <>{elements}</>;
     },
-    [handleReferenceClickWithPopup]
+    [handleReferenceClickWithPopup],
   );
 
   // Function to render "see also" content
@@ -879,7 +879,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
       const seeAlsoText = item.content_text;
       const seeAlsoMatch = seeAlsoText.match(
-        /\((See)\s+(Note\s+[A-Za-z0-9.-]+)\)/
+        /\((See)\s+(Note\s+[A-Za-z0-9.-]+)\)/,
       );
 
       if (seeAlsoMatch) {
@@ -907,7 +907,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         </div>
       );
     },
-    [handleSeeAlsoClick]
+    [handleSeeAlsoClick],
   );
 
   const isSearchMode = useMemo(() => {
@@ -931,12 +931,12 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               </mark>
             ) : (
               part
-            )
+            ),
           )}
         </>
       );
     },
-    [isSearchMode]
+    [isSearchMode],
   );
   const getTypeStyles = (type: string) => {
     const styles: Record<string, { text: string }> = {
@@ -1035,7 +1035,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
           {hasChildren && isExpanded && (
             <div>
               {item.children!.map((child) =>
-                renderNavigationItem(child, level + 1)
+                renderNavigationItem(child, level + 1),
               )}
             </div>
           )}
@@ -1047,7 +1047,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       selectedItem,
       handleNavigationClick,
       toggleNavigationExpand,
-    ]
+    ],
   );
   const renderDefinition = useCallback(
     (definition: HierarchyNode, level: number = 0) => {
@@ -1079,7 +1079,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                   ? highlightText(definition.content_text, searchTerm)
                   : highlightReferences(
                       definition.content_text,
-                      definition.references || []
+                      definition.references || [],
                     )}
               </span>
             )}
@@ -1104,7 +1104,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                               ? highlightText(child.content_text, searchTerm)
                               : highlightReferences(
                                   child.content_text,
-                                  child.references || []
+                                  child.references || [],
                                 )}
                           </span>
                         </div>
@@ -1126,7 +1126,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         </div>
       );
     },
-    [searchTerm, highlightText, highlightReferences, renderSeeAlsoContent]
+    [searchTerm, highlightText, highlightReferences, renderSeeAlsoContent],
   );
 
   const handleGridItemClick = useCallback(
@@ -1143,14 +1143,14 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         setTimeout(() => scrollToElement(child.id), 150);
       });
     },
-    [loadContentForItem, scrollToElement]
+    [loadContentForItem, scrollToElement],
   );
   const [hoveredParent, setHoveredParent] = useState<number | null>(null);
   // Add this function to find parent article
   const findParentArticle = useCallback(
     (item: HierarchyNode): HierarchyNode | null => {
       const findArticleInHierarchy = (
-        node: HierarchyNode
+        node: HierarchyNode,
       ): HierarchyNode | null => {
         if (!node) return null;
 
@@ -1170,7 +1170,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
       return findArticleInHierarchy(item);
     },
-    [navigationData, findItemInNavigation]
+    [navigationData, findItemInNavigation],
   );
 
   const renderNoteContent = useCallback(
@@ -1191,8 +1191,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               isHighlighted
                 ? "bg-blue-50"
                 : isHovered
-                ? "bg-gray-200"
-                : "bg-white"
+                  ? "bg-gray-200"
+                  : "bg-white"
             }`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
@@ -1233,7 +1233,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                               ? highlightText(child.content_text, searchTerm)
                               : highlightReferences(
                                   child.content_text,
-                                  child.references || []
+                                  child.references || [],
                                 )}
                           </div>
                         )}
@@ -1286,7 +1286,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                               <img
                                 src={renderImageData(
                                   child.imageData,
-                                  child.imageFormat || "png"
+                                  child.imageFormat || "png",
                                 )}
                                 alt={
                                   child.content_text ||
@@ -1310,7 +1310,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                                       reference_code: child.reference_code,
                                       imageDataLength: child.imageData?.length,
                                       format: child.imageFormat,
-                                    }
+                                    },
                                   );
                                   (e.target as HTMLImageElement).style.display =
                                     "none";
@@ -1355,7 +1355,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                   ? highlightText(item.content_text, searchTerm)
                   : highlightReferences(
                       item.content_text,
-                      item.references || []
+                      item.references || [],
                     )}
               </div>
             )}
@@ -1365,7 +1365,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
       return null;
     },
-    [selectedItem, hoveredItem, searchTerm, highlightText, highlightReferences]
+    [selectedItem, hoveredItem, searchTerm, highlightText, highlightReferences],
   );
   const renderClauseContent = useCallback(
     (item: HierarchyNode, level: number = 0) => {
@@ -1393,10 +1393,10 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
     activeChildParent === item.id
       ? "bg-gray-100 !border-black !border-l-black"
       : isHighlighted
-      ? "bg-blue-50 !border-blue-300 !border-l-blue-600"
-      : isHovered
-      ? "bg-gray-100 !border-black !border-l-blue-500"
-      : ""
+        ? "bg-blue-50 !border-blue-300 !border-l-blue-600"
+        : isHovered
+          ? "bg-gray-100 !border-black !border-l-blue-500"
+          : ""
   }`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
@@ -1415,19 +1415,19 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                     ? highlightText(item.content_text, searchTerm)
                     : highlightReferences(
                         item.content_text,
-                        item.references || []
+                        item.references || [],
                       ))}
               </span>
             </div>
 
             {hasChildren &&
               item.children!.some(
-                (child) => child.content_type === "see_also"
+                (child) => child.content_type === "see_also",
               ) && (
                 <div className="mt-1">
                   {item
                     .children!.filter(
-                      (child) => child.content_type === "see_also"
+                      (child) => child.content_type === "see_also",
                     )
                     .map((child) => renderSeeAlsoContent(child))}
                 </div>
@@ -1437,7 +1437,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               <div className="ml-2 mt-1 space-y-2">
                 {item
                   .children!.filter(
-                    (child) => child.content_type !== "see_also"
+                    (child) => child.content_type !== "see_also",
                   )
                   .map((child) => {
                     if (child.content_type === "definition") {
@@ -1462,8 +1462,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               isHighlighted
                 ? "bg-blue-50"
                 : isHovered
-                ? "bg-gray-100 !border-black !border-l-blue-500"
-                : ""
+                  ? "bg-gray-100 !border-black !border-l-blue-500"
+                  : ""
             }`}
             onMouseEnter={() => {
               setHoveredItem(item.id);
@@ -1490,19 +1490,19 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                     ? highlightText(item.content_text, searchTerm)
                     : highlightReferences(
                         item.content_text,
-                        item.references || []
+                        item.references || [],
                       ))}
               </span>
             </div>
 
             {hasChildren &&
               item.children!.some(
-                (child) => child.content_type === "see_also"
+                (child) => child.content_type === "see_also",
               ) && (
                 <div className="mt-1">
                   {item
                     .children!.filter(
-                      (child) => child.content_type === "see_also"
+                      (child) => child.content_type === "see_also",
                     )
                     .map((child) => renderSeeAlsoContent(child))}
                 </div>
@@ -1521,7 +1521,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       highlightReferences,
       renderSeeAlsoContent,
       renderDefinition,
-    ]
+    ],
   );
   const renderListItems = useCallback(
     (items: HierarchyNode[], parentItem?: HierarchyNode) => {
@@ -1573,7 +1573,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                       ? highlightText(item.content_text || "", searchTerm)
                       : highlightReferences(
                           item.content_text || "",
-                          item.references || []
+                          item.references || [],
                         )}
                   </div>
                 </div>
@@ -1590,7 +1590,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       searchTerm,
       highlightText,
       highlightReferences,
-    ]
+    ],
   );
   const renderArticleChild = useCallback(
     (item: HierarchyNode, level: number = 0, parentItem?: HierarchyNode) => {
@@ -1601,7 +1601,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         // If this is a list_item inside a sentence with siblings, render in grid
         const siblings = parentItem?.children || [];
         const listItems = siblings.filter(
-          (child) => child.content_type === "list_item"
+          (child) => child.content_type === "list_item",
         );
 
         // Only render if this is the first list_item in the group
@@ -1622,15 +1622,15 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       // In the renderArticleChild function, update the sentence with list items section:
       if (item.content_type === "sentence" && hasChildren) {
         const hasListItems = item.children!.some(
-          (child) => child.content_type === "list_item"
+          (child) => child.content_type === "list_item",
         );
 
         if (hasListItems) {
           const listItems = item.children!.filter(
-            (child) => child.content_type === "list_item"
+            (child) => child.content_type === "list_item",
           );
           const otherChildren = item.children!.filter(
-            (child) => child.content_type !== "list_item"
+            (child) => child.content_type !== "list_item",
           );
 
           const isHighlighted = selectedItem === item.id;
@@ -1648,10 +1648,10 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             activeChildParent === item.id
               ? "bg-gray-200 !border-gray-700 !border-l-black"
               : isHighlighted || isParentHovered // Add isParentHovered here
-              ? "bg-gray-200 !border-gray-700 !border-l-blue-600 "
-              : isHovered
-              ? "bg-gray-200 !border-gray-700 !border-l-blue-500"
-              : ""
+                ? "bg-gray-200 !border-gray-700 !border-l-blue-600 "
+                : isHovered
+                  ? "bg-gray-200 !border-gray-700 !border-l-blue-500"
+                  : ""
           }`}
               onMouseEnter={() => {
                 setHoveredItem(item.id);
@@ -1678,7 +1678,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                           ? highlightText(item.content_text, searchTerm)
                           : highlightReferences(
                               item.content_text,
-                              item.references || []
+                              item.references || [],
                             )}
                       </span>
                     )}
@@ -1714,10 +1714,10 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         item.children!.some((child) => child.content_type === "list_item")
       ) {
         const listItems = item.children!.filter(
-          (child) => child.content_type === "list_item"
+          (child) => child.content_type === "list_item",
         );
         const otherChildren = item.children!.filter(
-          (child) => child.content_type !== "list_item"
+          (child) => child.content_type !== "list_item",
         );
 
         const isHighlighted = selectedItem === item.id;
@@ -1734,8 +1734,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               isHighlighted
                 ? "bg-blue-50 !border-blue-300 !border-l-blue-600 shadow-sm"
                 : isHovered
-                ? "bg-gray-200 !border-gray-700 !border-l-blue-500"
-                : ""
+                  ? "bg-gray-200 !border-gray-700 !border-l-blue-500"
+                  : ""
             }`}
             onMouseEnter={() => {
               setHoveredItem(item.id);
@@ -1758,7 +1758,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                         ? highlightText(item.content_text, searchTerm)
                         : highlightReferences(
                             item.content_text,
-                            item.references || []
+                            item.references || [],
                           )}
                     </span>
                   )}
@@ -1824,10 +1824,10 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               activeChildParent === item.id
                 ? "bg-gray-200 !border-gray-300 !border-l-black"
                 : isHighlighted
-                ? "bg-blue-50 !border-blue-300 !border-l-blue-600 shadow-sm"
-                : isHovered
-                ? "bg-gray-200 !border-gray-300 !border-l-blue-500"
-                : ""
+                  ? "bg-blue-50 !border-blue-300 !border-l-blue-600 shadow-sm"
+                  : isHovered
+                    ? "bg-gray-200 !border-gray-300 !border-l-blue-500"
+                    : ""
             }`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
@@ -1844,7 +1844,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                         ? highlightText(item.content_text, searchTerm)
                         : highlightReferences(
                             item.content_text,
-                            item.references || []
+                            item.references || [],
                           )}
                     </span>
                   )}
@@ -1884,10 +1884,10 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               activeChildParent === item.id
                 ? "bg-gray-200 !border-gray-700 !border-l-black"
                 : isHighlighted
-                ? "bg-blue-50 !border-blue-300 !border-l-blue-600 shadow-sm"
-                : isHovered
-                ? "bg-gray-200 !border-gray-700 !border-l-blue-500"
-                : ""
+                  ? "bg-blue-50 !border-blue-300 !border-l-blue-600 shadow-sm"
+                  : isHovered
+                    ? "bg-gray-200 !border-gray-700 !border-l-blue-500"
+                    : ""
             }`}
             onMouseEnter={() => {
               setHoveredItem(item.id);
@@ -1916,7 +1916,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                             ? highlightText(item.content_text, searchTerm)
                             : highlightReferences(
                                 item.content_text,
-                                item.references || []
+                                item.references || [],
                               )}
                         </span>
                       )}
@@ -1926,12 +1926,12 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
                 {hasChildren &&
                   item.children!.some(
-                    (child) => child.content_type === "see_also"
+                    (child) => child.content_type === "see_also",
                   ) && (
                     <div className="mt-2">
                       {item
                         .children!.filter(
-                          (child) => child.content_type === "see_also"
+                          (child) => child.content_type === "see_also",
                         )
                         .map((child) => renderSeeAlsoContent(child))}
                     </div>
@@ -1960,11 +1960,69 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                         );
                       }
 
+                      if (child.content_type === "table") {
+                        console.log("Table detected");
+                        return renderArticleChild(child, level + 1, item);
+                      }
+
                       return null;
                     })}
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        );
+      }
+
+      if (item.content_type === "table") {
+        const isHighlighted = selectedItem === item.id;
+        const isHovered = hoveredItem === item.id;
+
+        return (
+          <div key={item.id} className="mb-8">
+            <div
+              ref={(el) => {
+                contentRefs.current[item.id] = el;
+              }}
+              className={`p-4 rounded-lg ${
+                isHighlighted
+                  ? "bg-blue-50 border border-blue-300 shadow-sm"
+                  : isHovered
+                    ? "bg-gray-50 border border-gray-200 shadow-sm"
+                    : "border border-gray-200"
+              }`}
+              onMouseEnter={() => setHoveredItem(item.id)}
+              onMouseLeave={() => setHoveredItem(null)}
+              onClick={() => setSelectedItem(item.id)}
+            >
+              {/* Table reference code and subtitle */}
+              <div className="mb-3">
+                {item.reference_code && (
+                  <div className="text-sm font-bold text-gray-800 mb-1 text-center">
+                    {item.reference_code}
+                  </div>
+                )}
+                {item.content_text && (
+                  <div className="text-sm text-gray-600 italic text-center font-bold">
+                    {item.content_text}
+                  </div>
+                )}
+              </div>
+
+              {/* Table HTML */}
+              {item.tableHtml ? (
+                <div className="overflow-x-auto">
+                  <div
+                    className="bc-table"
+                    dangerouslySetInnerHTML={{ __html: item.tableHtml }}
+                  />
+                </div>
+              ) : (
+                <div className="text-center text-gray-400 italic py-4">
+                  [Table not available]
+                </div>
+              )}
             </div>
           </div>
         );
@@ -1989,12 +2047,12 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
           {hasChildren &&
             item.children!.some(
-              (child) => child.content_type === "see_also"
+              (child) => child.content_type === "see_also",
             ) && (
               <div className="mt-1">
                 {item
                   .children!.filter(
-                    (child) => child.content_type === "see_also"
+                    (child) => child.content_type === "see_also",
                   )
                   .map((child) => renderSeeAlsoContent(child))}
               </div>
@@ -2013,7 +2071,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       renderDefinition,
       renderClauseContent,
       renderListItems,
-    ]
+    ],
   );
   const renderImageData = (base64Data: string, format: string): string => {
     // The imageData might already be a complete data URL, so check first
@@ -2030,8 +2088,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       format.toLowerCase() === "png"
         ? "png"
         : format.toLowerCase() === "jpg" || format.toLowerCase() === "jpeg"
-        ? "jpeg"
-        : format.toLowerCase();
+          ? "jpeg"
+          : format.toLowerCase();
 
     return `data:image/${mimeType};base64,${cleanBase64}`;
   };
@@ -2139,8 +2197,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                 isHighlighted
                   ? "bg-blue-50 border-blue-300 shadow-sm"
                   : isHovered
-                  ? "bg-gray-200 border-gray-300 shadow-sm"
-                  : ""
+                    ? "bg-gray-200 border-gray-300 shadow-sm"
+                    : ""
               }`}
               onMouseEnter={() => setHoveredItem(item.id)}
               onMouseLeave={() => setHoveredItem(null)}
@@ -2166,7 +2224,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                   <img
                     src={renderImageData(
                       item.imageData,
-                      item.imageFormat || "png"
+                      item.imageFormat || "png",
                     )}
                     alt={item.content_text || item.reference_code || "Figure"}
                     style={{
@@ -2175,7 +2233,6 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                         ? `${item.imageHeight}px`
                         : "auto",
                       maxWidth: "100%",
-                      height: "auto",
                     }}
                     className="mx-auto"
                     onError={(e) => {
@@ -2210,6 +2267,60 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         );
       }
 
+      if (item.content_type === "table") {
+        console.log("Table Found");
+        const isHighlighted = selectedItem === item.id;
+        const isHovered = hoveredItem === item.id;
+
+        return (
+          <div key={item.id} className="mb-8">
+            <div
+              ref={(el) => {
+                contentRefs.current[item.id] = el;
+              }}
+              className={`p-4 rounded-lg ${
+                isHighlighted
+                  ? "bg-blue-50 border border-blue-300 shadow-sm"
+                  : isHovered
+                    ? "bg-gray-50 border border-gray-200 shadow-sm"
+                    : "border border-gray-200"
+              }`}
+              onMouseEnter={() => setHoveredItem(item.id)}
+              onMouseLeave={() => setHoveredItem(null)}
+              onClick={() => setSelectedItem(item.id)}
+            >
+              {/* Table reference code and subtitle */}
+              <div className="mb-3">
+                {item.reference_code && (
+                  <div className="text-sm font-bold text-gray-800 mb-1">
+                    {item.reference_code}
+                  </div>
+                )}
+                {item.content_text && (
+                  <div className="text-sm text-gray-600 italic">
+                    {item.content_text}
+                  </div>
+                )}
+              </div>
+
+              {/* Table HTML */}
+              {item.tableHtml ? (
+                <div className="overflow-x-auto">
+                  <div
+                    className="bc-table"
+                    dangerouslySetInnerHTML={{ __html: item.tableHtml }}
+                  />
+                </div>
+              ) : (
+                <div className="text-center text-gray-400 italic py-4">
+                  [Table not available]
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
       // Handle note_section (non-large content version)
       if (item.content_type === "note_section") {
         const hasChildren = item.children && item.children.length > 0;
@@ -2230,8 +2341,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                 showHighlight
                   ? "bg-blue-50 border-blue-300 shadow-sm"
                   : isHovered
-                  ? "bg-gray-200 border-gray-300 shadow-sm"
-                  : ""
+                    ? "bg-gray-200 border-gray-300 shadow-sm"
+                    : ""
               }`}
               onMouseEnter={() => setHoveredItem(item.id)}
               onMouseLeave={() => setHoveredItem(null)}
@@ -2290,8 +2401,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               isHighlighted
                 ? ""
                 : isHovered
-                ? "bg-gray-200"
-                : "border-transparent"
+                  ? "bg-gray-200"
+                  : "border-transparent"
             }`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
@@ -2304,7 +2415,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                     ? highlightText(item.content_text, searchTerm)
                     : highlightReferences(
                         item.content_text,
-                        item.references || []
+                        item.references || [],
                       )}
                 </div>
               )}
@@ -2313,7 +2424,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
             {item.children && item.children.length > 0 && (
               <div className="mt-3 space-y-3">
                 {item.children.map((child) =>
-                  renderArticleChild(child, level + 1, item)
+                  renderArticleChild(child, level + 1, item),
                 )}
               </div>
             )}
@@ -2324,11 +2435,11 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         // Find parent to render list items in a grid
         const parentItem = findItemInNavigation(
           navigationData,
-          item.parent_id || 0
+          item.parent_id || 0,
         );
         const siblings = parentItem?.children || [];
         const listItems = siblings.filter(
-          (child) => child.content_type === "list_item"
+          (child) => child.content_type === "list_item",
         );
 
         // Only render if this is the first list_item in the group
@@ -2337,7 +2448,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
         if (isFirstListItem && listItems.length > 0) {
           return (
             <div key={`list-group-${item.id}`} className="mt-2 mb-4">
-              {renderListItems(listItems, parentItem)}
+              {renderListItems(listItems, parentItem || undefined)}
             </div>
           );
         }
@@ -2374,8 +2485,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                 showHighlight
                   ? "bg-blue-50 border-blue-300 shadow-sm"
                   : isHovered || isParentHovered
-                  ? "bg-gray-200 border-gray-300 shadow-sm"
-                  : ""
+                    ? "bg-gray-200 border-gray-300 shadow-sm"
+                    : ""
               }`}
               onMouseEnter={() => setHoveredItem(item.id)}
               onMouseLeave={() => setHoveredItem(null)}
@@ -2423,8 +2534,8 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               showHighlight
                 ? "bg-blue-50 border-blue-300 shadow-sm"
                 : isHovered
-                ? "bg-gray-200 border-gray-300 shadow-sm"
-                : ""
+                  ? "bg-gray-200 border-gray-300 shadow-sm"
+                  : ""
             }`}
             onMouseEnter={() => setHoveredItem(item.id)}
             onMouseLeave={() => setHoveredItem(null)}
@@ -2441,7 +2552,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
                       ? highlightText(item.content_text, searchTerm)
                       : highlightReferences(
                           item.content_text,
-                          item.references || []
+                          item.references || [],
                         )}
                   </span>
                 )}
@@ -2450,12 +2561,12 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
 
             {hasChildren &&
               item.children!.some(
-                (child) => child.content_type === "see_also"
+                (child) => child.content_type === "see_also",
               ) && (
                 <div className="mt-2">
                   {item
                     .children!.filter(
-                      (child) => child.content_type === "see_also"
+                      (child) => child.content_type === "see_also",
                     )
                     .map((child) => renderSeeAlsoContent(child))}
                 </div>
@@ -2473,7 +2584,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
               <div className="ml-1">
                 {item
                   .children!.filter(
-                    (child) => child.content_type !== "see_also"
+                    (child) => child.content_type !== "see_also",
                   )
                   .map((child) => renderContentItem(child, level + 1))}
               </div>
@@ -2493,7 +2604,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       handleNavigationClick,
       renderArticleChild,
       handleGridItemClick, // Make sure this is included
-    ]
+    ],
   );
 
   // Mobile navigation overlay
@@ -2581,7 +2692,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
   const SearchResultsSection = () => {
     // Helper function to convert SearchResult to HierarchyNode
     const convertSearchResultToHierarchyNode = (
-      result: SearchResult
+      result: SearchResult,
     ): HierarchyNode => {
       // Ensure content_type is a valid ContentType, default to "sentence" if not
       const validContentTypes: ContentType[] = [
@@ -2602,7 +2713,7 @@ const BuildingCodeViewer: React.FC<BuildingCodeViewerProps> = ({
       ];
 
       const contentType = validContentTypes.includes(
-        result.contentType as ContentType
+        result.contentType as ContentType,
       )
         ? (result.contentType as ContentType)
         : "sentence";

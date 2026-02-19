@@ -79,6 +79,7 @@ interface ContentItem {
   metadata?: {
     isLargeContent?: boolean;
   };
+  tableHtml?: string | null;
 }
 
 interface SearchResult {
