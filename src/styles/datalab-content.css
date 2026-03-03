@@ -1,0 +1,235 @@
+/* src/styles/datalab-content.css */
+/* Styles for Datalab HTML content */
+
+.datalab-content {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color: #333;
+}
+
+/* Headings */
+.datalab-content h1,
+.datalab-content h2,
+.datalab-content h3,
+.datalab-content h4,
+.datalab-content h5,
+.datalab-content h6 {
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  color: #1a1a1a;
+}
+
+.datalab-content h1 {
+  font-size: 2em;
+  border-bottom: 2px solid #e0e0e0;
+  padding-bottom: 0.3em;
+}
+
+.datalab-content h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 0.3em;
+}
+
+.datalab-content h3 {
+  font-size: 1.25em;
+}
+
+.datalab-content h4 {
+  font-size: 1.1em;
+}
+
+.datalab-content h5,
+.datalab-content h6 {
+  font-size: 1em;
+}
+
+/* Paragraphs */
+.datalab-content p {
+  margin-bottom: 1em;
+}
+
+/* Lists */
+.datalab-content ul,
+.datalab-content ol {
+  margin-bottom: 1em;
+  padding-left: 2em;
+}
+
+.datalab-content li {
+  margin-bottom: 0.5em;
+}
+
+.datalab-content ul[style*="list-style-type: none"] {
+  padding-left: 1em;
+}
+
+/* Tables */
+.datalab-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.9em;
+}
+
+.datalab-content table th,
+.datalab-content table td {
+  border: 1px solid #ddd;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.datalab-content table th {
+  background-color: #f5f5f5;
+  font-weight: 600;
+  color: #333;
+}
+
+.datalab-content table tr:nth-child(even) {
+  background-color: #fafafa;
+}
+
+.datalab-content table tr:hover {
+  background-color: #f0f0f0;
+}
+
+/* Math equations */
+.datalab-content math,
+.datalab-content .math {
+  font-style: italic;
+}
+
+/* Display math (block) */
+.datalab-content math[display="block"] {
+  display: block;
+  margin: 1em 0;
+  text-align: center;
+  font-size: 1.1em;
+}
+
+/* Inline math */
+.datalab-content math:not([display="block"]) {
+  display: inline;
+  padding: 0 2px;
+}
+
+/* Equation blocks - styled similar to json_to_html.py */
+.datalab-content .equation,
+.datalab-content p[block-type="Equation"] {
+  margin: 25px 0;
+  padding: 20px;
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-left: 4px solid #28a745;
+  border-radius: 4px;
+  overflow-x: auto;
+  text-align: center;
+}
+
+/* MathJax rendered equations */
+.datalab-content mjx-container {
+  font-size: 1.1em !important;
+}
+
+/* Code blocks */
+.datalab-content code {
+  background-color: #f5f5f5;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.9em;
+}
+
+.datalab-content pre {
+  background-color: #f5f5f5;
+  padding: 1em;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.datalab-content pre code {
+  background-color: transparent;
+  padding: 0;
+}
+
+/* Emphasis */
+.datalab-content strong,
+.datalab-content b {
+  font-weight: 600;
+}
+
+.datalab-content em,
+.datalab-content i {
+  font-style: italic;
+}
+
+/* Blockquotes */
+.datalab-content blockquote {
+  border-left: 4px solid #ddd;
+  padding-left: 1em;
+  margin: 1em 0;
+  color: #666;
+}
+
+/* Links */
+.datalab-content a {
+  color: #1976d2;
+  text-decoration: none;
+}
+
+.datalab-content a:hover {
+  text-decoration: underline;
+}
+
+/* Images */
+.datalab-content img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 1em auto;
+}
+
+/* Search highlights */
+.datalab-content mark {
+  background-color: #ffeb3b;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .datalab-content {
+    font-size: 14px;
+  }
+
+  .datalab-content table {
+    font-size: 0.8em;
+  }
+
+  .datalab-content pre {
+    font-size: 0.85em;
+  }
+}
+
+/* Print styles */
+@media print {
+  .datalab-content {
+    font-size: 12pt;
+    color: black;
+  }
+
+  .datalab-content table {
+    page-break-inside: avoid;
+  }
+
+  .datalab-content h1,
+  .datalab-content h2,
+  .datalab-content h3 {
+    page-break-after: avoid;
+  }
+}
