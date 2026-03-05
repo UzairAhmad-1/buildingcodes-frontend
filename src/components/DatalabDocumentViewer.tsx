@@ -4,12 +4,14 @@ import {
   datalabService,
   getSectionTitle,
   getReferenceCode,
+  extractTextFromHtml,
 } from "@/services/datalabService";
 import {
   DatalabContentBlock,
   DocumentNavigation,
   NavigationNode,
 } from "@/types/datalab";
+import AnimatedPopup from "./AnimatedPopup";
 
 // Declare MathJax global type
 declare global {
@@ -89,6 +91,9 @@ const DatalabDocumentViewer: React.FC<DatalabDocumentViewerProps> = ({
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set());
   const [previewBlock, setPreviewBlock] = useState<DatalabContentBlock | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [definitionBlock, setDefinitionBlock] = useState<DatalabContentBlock | null>(null);
+  const [definitionTerm, setDefinitionTerm] = useState<string>("");
+  const [showDefinition, setShowDefinition] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
 
@@ -219,18 +224,65 @@ const DatalabDocumentViewer: React.FC<DatalabDocumentViewerProps> = ({
 
   // Intercept clicks on internal links
   useEffect(() => {
-    const handleLinkClick = (event: MouseEvent) => {
+    const handleLinkClick = async (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       // Check if clicked element is a link or inside a link
       const link = target.closest("a");
-      if (link && link.hash && link.hash.startsWith("#block-")) {
-        event.preventDefault();
-        const blockId = parseInt(link.hash.replace("#block-", ""));
-        // Find the block in contentBlocks
-        const block = contentBlocks.find((b) => b.id === blockId);
-        if (block) {
-          setPreviewBlock(block);
-          setShowPreview(true);
+      if (link && link.hash) {
+        // Handle section reference links (#block-123)
+        if (link.hash.startsWith("#block-")) {
+          event.preventDefault();
+          const blockId = parseInt(link.hash.replace("#block-", ""));
+          // Find the block in contentBlocks
+          const block = contentBlocks.find((b) => b.id === blockId);
+          if (block) {
+            setPreviewBlock(block);
+            setShowPreview(true);
+          }
+        }
+        // Handle definition links (# followed by datalab block ID)
+        else if (link.hash.startsWith("#") && link.hash.length > 1) {
+          event.preventDefault();
+          const blockId = link.hash.substring(1); // Remove the '#'
+
+          console.log("[DEFINITION DEBUG] Clicked link with blockId:", blockId);
+
+          // Get the term text from the link
+          const termText = link.textContent || "";
+          setDefinitionTerm(termText);
+          console.log("[DEFINITION DEBUG] Term:", termText);
+
+          // Log first few blocks to see what block_ids look like
+          console.log("[DEFINITION DEBUG] Sample block_ids from loaded content:",
+            contentBlocks.slice(0, 5).map(b => ({ id: b.id, block_id: b.block_id }))
+          );
+
+          // Try to find block in loaded content first (hybrid approach)
+          const foundBlock = contentBlocks.find((b) => b.block_id === blockId);
+
+          if (foundBlock) {
+            console.log("[DEFINITION DEBUG] Found block in loaded content:", foundBlock.id);
+            setDefinitionBlock(foundBlock);
+            setShowDefinition(true);
+          } else {
+            console.log("[DEFINITION DEBUG] Block not found in loaded content, fetching from API...");
+            // Fetch from API if not found in loaded content
+            try {
+              const block = await datalabService.getBlockById(
+                documentId,
+                blockId
+              );
+              if (block) {
+                console.log("[DEFINITION DEBUG] Fetched block from API:", block);
+                setDefinitionBlock(block);
+                setShowDefinition(true);
+              } else {
+                console.warn("[DEFINITION DEBUG] Block not found via API");
+              }
+            } catch (err) {
+              console.error("[DEFINITION DEBUG] Failed to fetch definition block:", err);
+            }
+          }
         }
       }
     };
@@ -245,7 +297,7 @@ const DatalabDocumentViewer: React.FC<DatalabDocumentViewerProps> = ({
         contentElement.removeEventListener("click", handleLinkClick);
       }
     };
-  }, [contentBlocks]);
+  }, [contentBlocks, documentId]);
 
   // Search within document
   const handleSearch = useCallback(async () => {
@@ -660,6 +712,31 @@ const DatalabDocumentViewer: React.FC<DatalabDocumentViewerProps> = ({
 
       {/* Preview Modal */}
       {renderPreviewModal()}
+
+      {/* Definition Popup */}
+      <AnimatedPopup
+        isOpen={showDefinition}
+        onClose={() => {
+          setShowDefinition(false);
+          setDefinitionBlock(null);
+          setDefinitionTerm("");
+        }}
+        title={definitionTerm}
+        copyText={
+          definitionBlock?.html_content
+            ? extractTextFromHtml(definitionBlock.html_content)
+            : ""
+        }
+      >
+        {definitionBlock?.html_content && (
+          <div
+            className="datalab-content"
+            dangerouslySetInnerHTML={{
+              __html: convertMathTags(definitionBlock.html_content),
+            }}
+          />
+        )}
+      </AnimatedPopup>
     </div>
   );
 };

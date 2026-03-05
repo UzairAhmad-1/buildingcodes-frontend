@@ -11,6 +11,7 @@ export interface DatalabContentBlock {
   images: Record<string, any> | null;
   bbox: number[] | null;
   polygon: Record<string, any> | null;
+  block_id: string | null; // Datalab block ID for definition links
 }
 
 export interface DatalabContentResponse {

@@ -158,6 +158,31 @@ export const datalabService = {
   },
 
   /**
+   * Get a specific block by its ID (for definition popups)
+   */
+  async getBlockById(
+    documentId: string,
+    blockId: string,
+    signal?: AbortSignal
+  ): Promise<any> {
+    console.log("[DEFINITION DEBUG] getBlockById called with:", { documentId, blockId });
+
+    // Don't URL-encode since we're using :path parameter in FastAPI
+    const url = `${API_BASE_URL}/datalab/documents/${documentId}/blocks/${blockId}`;
+    console.log("[DEFINITION DEBUG] Fetching URL:", url);
+
+    const response = await fetch(url, { signal });
+
+    console.log("[DEFINITION DEBUG] Response status:", response.status);
+
+    if (!response.ok) {
+      if (response.status === 404) return null;
+      throw new Error("Failed to fetch block");
+    }
+    return response.json();
+  },
+
+  /**
    * Clear cached requests
    */
   clearCache() {
